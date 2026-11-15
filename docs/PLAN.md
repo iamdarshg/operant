@@ -1155,3 +1155,51 @@ the vague "duplicate wire types" line it replaced.
 
 Not done, and stated as such: aligning `packages/core` to the wire format, and
 adding response validation to the API so this class of drift cannot recur silently.
+
+---
+
+## 32. Round 23 — an acceptance run found the gate had a hole
+
+The consolidated acceptance drill passed on the main claim — services active, a real
+request returned exactly `ACCEPTANCE-PASS`, 8 job events, an audit row, episodic
+memory written, zero failed units — and then found a genuine defect in the thing I
+had already declared working.
+
+### The hole
+"Email the client a summary of the build." was dispatched **immediately**: no
+approval, one job, task `queued`. My `external_message` rule only understood
+`send ... email`, and verb-first phrasing is how people actually write.
+
+That is the difference between a gate and a suggestion. A user typing the natural
+sentence walks straight past a control designed to stop them.
+
+### The fix
+The pattern now also matches the imperative form with a recipient —
+`email|e-mail|dm|message|ping` + `the client|customer|team|user|vendor|boss|manager|…`
+— and keeps the existing `send`/`post`/`reply to`/`notify` forms.
+
+Eight new tests, and the negative ones matter as much as the positive:
+
+| Gated | Not gated (reading ≠ doing) |
+|---|---|
+| "Email the client a summary of the build." | "Read the email from the client and summarise it." |
+| "email the customer about the delay" | "Summarise the customer feedback in the inbox." |
+| "DM the recruiter my updated CV" | "Write a message template to a file." |
+| "Message the vendor asking for a quote" | |
+| "Ping the team that the deploy is done" | |
+
+### Verified live, not only in vitest
+Same request, after deploy:
+`approvalRequired: true`, **no job id**, **0 jobs created**, task `waiting_approval`.
+"Summarise the customer feedback in the inbox." still passes ungated, so the fix did
+not simply widen the gate into uselessness.
+
+Core suite: **63 tests** (was 55). Running total **219**.
+
+### What this says about the other rules
+The destructive and spend rules were exercised by the same drill and held. But this
+hole was found by accident, in a rule I had tested. The honest conclusion is that
+the prose gate's coverage is **unknown**, not verified — only the phrasings anyone
+happened to try are known to work. The tool-call boundary exists precisely because
+this layer cannot be trusted alone, and that reasoning is now evidence-backed rather
+than theoretical.

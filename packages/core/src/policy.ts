@@ -77,7 +77,7 @@ const RULES: Rule[] = [
     kind: 'external_message',
     risk: 'medium',
     label: 'message sent outside this platform',
-    pattern: /\b(send (an? )?(email|e-mail|dm|text|tweet)|post (to )?(twitter|x\.com|linkedin|reddit|the (team|channel|group))|publish (to|on)|reply to (the )?(client|customer)|notify (the )?(client|customer|team))\b/i,
+    pattern: /\b(send (an? )?(email|e-mail|dm|text|tweet)|(email|e-mail|dm|message|ping)\s+(the\s+)?(client|customer|team|user|vendor|boss|manager|recruiter|everyone|group|channel)|post (to )?(twitter|x\.com|linkedin|reddit|the (team|channel|group))|publish (to|on)|reply to (the )?(client|customer)|notify (the )?(client|customer|team))\b/i,
   },
   {
     kind: 'file_write_outside_workspace',

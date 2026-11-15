@@ -75,6 +75,38 @@ describe('assessment shape', () => {
   });
 });
 
+describe('imperative outward actions are gated (found by an acceptance run)', () => {
+  // "Email the client a summary of the build." ran unattended because the rule
+  // only understood "send ... email". Verb-first phrasing is how people actually
+  // write the request.
+  const gated = [
+    'Email the client a summary of the build.',
+    'email the customer about the delay',
+    'DM the recruiter my updated CV',
+    'Message the vendor asking for a quote',
+    'Ping the team that the deploy is done',
+  ];
+  for (const text of gated) {
+    it(`gates: ${text}`, () => {
+      const a = assessIntent(text);
+      expect(a.required).toBe(true);
+      expect(a.kind).toBe('external_message');
+    });
+  }
+
+  // Reading about an outward action is not performing one.
+  const allowed = [
+    'Read the email from the client and summarise it.',
+    'Summarise the customer feedback in the inbox.',
+    'Write a message template to a file.',
+  ];
+  for (const text of allowed) {
+    it(`does not gate: ${text}`, () => {
+      expect(assessIntent(text).required).toBe(false);
+    });
+  }
+});
+
 describe('tool-call boundary (enforcement that ignores wording)', () => {
   const blocked: [string, unknown, string][] = [
     ['pwsh', { command: 'rm -rf /var/lib/postgresql' }, 'destructive'],
