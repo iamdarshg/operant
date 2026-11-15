@@ -636,3 +636,69 @@ export async function usageSummary(db: Db) {
   return row ?? { prompt_tokens: 0, completion_tokens: 0, jobs: 0 };
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Schedules
+ * ------------------------------------------------------------------ */
+
+export interface ScheduleRow {
+  id: string;
+  title: string;
+  rrule: string;
+  timezone: string;
+  prompt: string;
+  agent_slug: string;
+  enabled: boolean;
+  last_run_at: Date | null;
+  next_run_at: Date | null;
+}
+
+/** Enabled schedules whose next occurrence is due. */
+export async function dueSchedules(db: Db, limit = 10): Promise<ScheduleRow[]> {
+  return db<ScheduleRow[]>`
+    SELECT * FROM schedules
+     WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= now()
+     ORDER BY next_run_at
+     LIMIT ${limit}`;
+}
+
+export async function listSchedules(db: Db): Promise<ScheduleRow[]> {
+  return db<ScheduleRow[]>`SELECT * FROM schedules ORDER BY created_at DESC`;
+}
+
+export async function createSchedule(
+  db: Db,
+  s: { title: string; rrule: string; timezone: string; prompt: string; agentSlug: string; nextRunAt: Date },
+): Promise<ScheduleRow> {
+  const [row] = await db<ScheduleRow[]>`
+    INSERT INTO schedules (title, rrule, timezone, prompt, agent_slug, next_run_at)
+    VALUES (${s.title}, ${s.rrule}, ${s.timezone}, ${s.prompt}, ${s.agentSlug}, ${s.nextRunAt})
+    RETURNING *`;
+  if (!row) throw new Error('schedule insert returned no row');
+  return row;
+}
+
+/**
+ * Record that a schedule fired and set its next occurrence. Returns false when
+ * another worker claimed this occurrence first.
+ *
+ * The guard is `next_run_at <= now()`, NOT equality against a timestamp read
+ * earlier. Postgres stores microseconds while a JS `Date` carries milliseconds,
+ * so an `= $firedAt` predicate never matched and the tick silently skipped every
+ * schedule (observed: the row was due, the worker was alive, nothing fired).
+ * Row-level locking in a single UPDATE makes the `<= now()` claim atomic: the
+ * loser's WHERE no longer matches because the winner already advanced the column.
+ */
+export async function markScheduleRan(db: Db, id: string, nextRunAt: Date | null): Promise<boolean> {
+  const rows = await db`
+    UPDATE schedules
+       SET last_run_at = now(), next_run_at = ${nextRunAt}
+     WHERE id = ${id} AND enabled AND next_run_at IS NOT NULL AND next_run_at <= now()
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+export async function deleteSchedule(db: Db, id: string): Promise<boolean> {
+  const rows = await db`DELETE FROM schedules WHERE id = ${id} RETURNING id`;
+  return rows.length > 0;
+}

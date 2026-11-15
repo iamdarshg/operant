@@ -18,17 +18,21 @@
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { runDshJob, type NormalizedEvent } from '@operant/dsh-adapter';
-import { assessToolCall } from '@operant/core';
+import { assessToolCall, nextRunAt, describeRule } from '@operant/core';
 import {
   appendJobEvents,
   claimNextJob,
   createApprovalForBlockedJob,
   createDb,
+  createTaskWithJob,
+  dueSchedules,
   finalizeJob,
   getTask,
   insertMemory,
   markJobDispatched,
+  markScheduleRan,
   recordUsage,
   renewLease,
   type JobRow,
@@ -38,6 +42,7 @@ import { recordIncident } from '@operant/learning';
 const DB_URL = process.env['DATABASE_URL'] ?? '';
 const CONCURRENCY = Math.min(Number(process.env['WORKER_CONCURRENCY'] ?? 2), 4);
 const DSH_PROFILE = process.env['OPERANT_DSH_PROFILE'] ?? 'operant';
+const WORKSPACE_ROOT = process.env['OPERANT_WORKSPACE_ROOT'] ?? './data/jobs';
 // Renew well inside the 180 s lease so a rebooted worker's job is reclaimable
 // within ~3 minutes instead of stalling on a long lease.
 const RENEW_MS = 45_000;
@@ -345,6 +350,56 @@ async function executeJob(job: JobRow): Promise<void> {
   }
 }
 
+/**
+ * Fire due schedules.
+ *
+ * The `schedules` table existed since the first migration and nothing ever read
+ * it — a documented capability that did not exist. Each tick claims an occurrence
+ * atomically (`markScheduleRan` is guarded on the exact `next_run_at` it read), so
+ * two workers polling at the same moment cannot double-fire.
+ */
+async function schedulerTick(): Promise<void> {
+  const due = await dueSchedules(db);
+  for (const s of due) {
+    const firedAt = s.next_run_at;
+    if (!firedAt) continue;
+
+    let next: Date | null = null;
+    try {
+      next = nextRunAt(s.rrule, s.timezone, firedAt);
+    } catch (err) {
+      // An unsupported rule disables itself rather than retrying forever.
+      log('schedule rule unsupported; disabling', { scheduleId: s.id, rule: s.rrule, error: String(err).slice(0, 200) });
+      await markScheduleRan(db, s.id, null).catch(() => {});
+      continue;
+    }
+
+    const claimed = await markScheduleRan(db, s.id, next);
+    if (!claimed) continue; // another worker took this occurrence
+
+    try {
+      const taskId = randomUUID();
+      const workspacePath = join(WORKSPACE_ROOT, taskId);
+      await mkdir(workspacePath, { recursive: true });
+      const { task } = await createTaskWithJob(
+        db,
+        { intent: s.prompt, title: s.title, requestedBy: 'schedule', origin: 'schedule' },
+        {
+          kind: 'execute',
+          agentId: s.agent_slug,
+          title: s.title,
+          prompt: `SCHEDULED TASK (${describeRule(s.rrule)})\n\n${s.prompt}\n\nWORKING DIRECTORY: ${workspacePath}`,
+          workspacePath,
+          permissionMode: 'workspace-write',
+        },
+      );
+      log('schedule fired', { scheduleId: s.id, taskId: task.id, nextRunAt: next?.toISOString() ?? null });
+    } catch (err) {
+      log('schedule could not enqueue a task', { scheduleId: s.id, error: String(err).slice(0, 300) });
+    }
+  }
+}
+
 async function loop(slot: number): Promise<void> {
   active += 1;
   // A worker must OUTLIVE a briefly unavailable database. Previously a failed
@@ -394,3 +449,11 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 
 log('worker starting', { concurrency: CONCURRENCY, profile: DSH_PROFILE, workspace: join('.', 'data', 'jobs') });
 for (let i = 0; i < CONCURRENCY; i += 1) void loop(i);
+
+// Scheduler: one tick at boot, then every minute. Idempotent, so a restart or a
+// second worker cannot fire the same occurrence twice.
+void schedulerTick().catch((err) => log('scheduler tick failed', { error: String(err).slice(0, 300) }));
+setInterval(() => {
+  void schedulerTick().catch((err) => log('scheduler tick failed', { error: String(err).slice(0, 300) }));
+}, 60_000);
+

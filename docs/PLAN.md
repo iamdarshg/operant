@@ -616,3 +616,56 @@ Also observed while testing, worth recording: the agent runs in a sandboxed
 namespace where the host's `/tmp` is invisible, so an instruction to delete a host
 path caused it to report "the target does not exist" rather than deleting
 something. Defence in depth from the sandbox, not from my policy.
+
+---
+
+## 18. Round 9 — dependency advisories, and a scheduler that can actually fire
+
+### Advisories addressed
+`fastify` 5.2.1 → **5.12.2** (GHSA-p68q-wchp-6fh7, auth-path bypass) and `next`
+15.1.3 → **15.5.28** (GHSA-2464-fhr4-w9xw, unauth RCE). Fastify verified after the
+bump: health `healthy`, and the empty-body cancel path still answers
+`200 {"cancelled":1}` (the behaviour from the own-parser registration).
+
+### The `schedules` table was documented but dead
+Migration 0001 created `schedules`; nothing ever read it. A capability listed in
+the deliverables that did not exist is worse than one that is absent.
+
+Now implemented:
+- `packages/core/src/schedule.ts` — a **documented RFC 5545 subset** (FREQ =
+  HOURLY/DAILY/WEEKLY, INTERVAL, BYHOUR, BYMINUTE, BYDAY) with timezone-correct
+  arithmetic. Unsupported rules **throw** rather than silently mis-scheduling.
+- `GET/POST/DELETE /v1/schedules`, validating the rule at creation time.
+- A worker tick (boot + every 60 s) that claims a due occurrence and enqueues a
+  real task with `origin='schedule'`.
+
+### Verified end to end
+
+| Check | Result |
+|---|---|
+| Rule → next run | `FREQ=DAILY;BYHOUR=9;BYMINUTE=0` / Asia/Calcutta → `2026-11-16T03:30:00Z` (= 09:00 IST) |
+| Unsupported rule | `400 invalid_rrule … FREQ=SECONDLY is not supported` (rejected, not scheduled) |
+| Firing | task created with `origin='schedule'`, status `running`, prompt headed `SCHEDULED TASK (daily at 9:00)` |
+| Advancement | `last_run_at` set, `next_run_at` moved to the future |
+| Worker log | `schedule fired {"scheduleId":…,"taskId":…,"nextRunAt":"2026-11-16T03:30:00.000Z"}` |
+
+### Bug found by testing it (and why it matters)
+The first implementation never fired. The claim was guarded with
+`WHERE next_run_at = $firedAt`, comparing the row's **microsecond** timestamp to a
+**millisecond** JS `Date` read back from it. They are never equal, so the UPDATE
+matched zero rows and the tick skipped every schedule **silently** — the row was
+due, the worker was alive, no error anywhere.
+
+Fixed by claiming with `WHERE … next_run_at <= now()`. Postgres row locks make that
+single UPDATE atomic, so the loser's predicate no longer matches once the winner
+has advanced the column. Lesson: never use timestamp equality as a compare-and-swap
+across a language boundary with different precision.
+
+Tests: `packages/core/src/schedule.test.ts` — parse/reject cases, the +05:30 offset,
+"next occurrence is never the current instant", INTERVAL, WEEKDAY selection, and
+determinism. Core suite now **55 tests**.
+
+### Still open
+Schedules are API-only (no dashboard or Discord surface yet); `allowed_tools` is
+still documentation; VoiceStudio `/mcp` is still unauthenticated; `/approvals`
+still has no auto-refresh and timestamps still carry no zone label.

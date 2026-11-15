@@ -28,7 +28,7 @@
     "pino": "9.6.0",
     "drizzle-orm": "0.38.3",
     "zod": "3.24.1",
-    "fastify": "5.2.1",
+    "fastify": "5.12.2",
     "@operant/dsh-adapter": "workspace:*",
     "@operant/mcp-client": "workspace:*"
   },
@@ -37,3 +37,4 @@
     "@types/node": "22.10.2"
   }
 }
+

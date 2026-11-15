@@ -25,18 +25,22 @@ import {
   MemorySearchInput,
   TERMINAL_JOB_STATUSES,
   assessIntent,
+  nextRunAt,
 } from '@operant/core';
 import {
   cancelTask,
   createDb,
   createTaskAwaitingApproval,
+  createSchedule,
   createTaskWithJob,
   decideApproval,
+  deleteSchedule,
   getJob,
   getJobEvents,
   getJobsForTask,
   getTask,
   insertMemory,
+  listSchedules,
   listTasks,
   recordHealth,
   recordUsage,
@@ -587,6 +591,42 @@ app.post('/v1/voice/transcribe', async (req, reply) => {
   } catch (err) {
     return reply.code(503).send({ error: 'voice_service_unreachable', detail: String(err) });
   }
+});
+
+/* ------------------------------------------------------------------ schedules */
+
+app.get('/v1/schedules', async () => ({ schedules: await listSchedules(db) }));
+
+app.post('/v1/schedules', async (req, reply) => {
+  const parsed = z
+    .object({
+      title: z.string().min(1).max(120),
+      // A documented subset of RFC 5545; unsupported rules are rejected rather
+      // than silently mis-scheduled.
+      rrule: z.string().min(3).max(200),
+      timezone: z.string().min(3).max(64).default('Asia/Calcutta'),
+      prompt: z.string().min(1).max(4000),
+      agentSlug: z.string().min(2).max(32).default('generalist'),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'invalid_schedule', issues: parsed.error.issues });
+
+  let nextRun: Date;
+  try {
+    nextRun = nextRunAt(parsed.data.rrule, parsed.data.timezone, new Date());
+  } catch (err) {
+    return reply.code(400).send({ error: 'invalid_rrule', detail: String(err) });
+  }
+
+  const row = await createSchedule(db, { ...parsed.data, nextRunAt: nextRun });
+  req.log.info({ scheduleId: row.id, nextRunAt: nextRun.toISOString() }, 'schedule created');
+  return reply.code(201).send({ schedule: row });
+});
+
+app.delete('/v1/schedules/:id', async (req, reply) => {
+  const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+  const removed = await deleteSchedule(db, id);
+  return removed ? { deleted: true } : reply.code(404).send({ error: 'not_found' });
 });
 
 /* ------------------------------------------------------------------ learning */
