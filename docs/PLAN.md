@@ -1973,3 +1973,35 @@ Added the WCAG 2.5.8 floor:
 The 768 px column spacing between "State" and "Took" was not addressed. It is a visual
 nit with no functional consequence, and it needs a visual judgment I would rather make
 with a screenshot than guess at.
+
+---
+
+## 52. Round 43 — the column-collision report does not reproduce
+
+QA reported: at 768 px the State/Took columns sit ~8 px apart, rendering
+"waiting approvalnot started". Captured the board at 768 in the current build as
+evidence (`design/evidence/board-768.png`).
+
+What it shows:
+
+```
+Request                                    State              Took     Updated
+Reply with exactly ATTEMPT-COUNTER-OK.     succeeded          5.9s     56m ago
+Run the shell command: sleep 60…           succeeded          4m 8s    1h ago
+Summarise the customer feedback…           cancelled          8m 51s   1h ago
+Email the client a summary…                waiting approval   1h 43m   1h ago
+```
+
+State, Took and Updated are clearly separated; the two values QA saw concatenated do not
+touch. Their row is present ("waiting approval" with "1h 43m"), so the data condition is
+reproduced even though the layout defect is not.
+
+So either it was fixed incidentally between their review and now, or their capture
+differed (a mid-stack breakpoint between the table layout and the stacked one). Either
+way I am **not** shipping a CSS change for a defect I cannot observe — that is how the
+phantom overflow cost two rounds earlier in this project.
+
+### Recorded rather than resolved
+If it recurs, the place to look is the breakpoint where the board table stops being a
+table: at 768 it is still tabular, at 390 the cells stack and carry `data-label`. A width
+between those two is the only place the reported concatenation could appear.
