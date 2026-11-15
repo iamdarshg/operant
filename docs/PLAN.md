@@ -58,12 +58,26 @@ D:\CodeProjects\operant
 | Phase | Gate | State |
 |---|---|---|
 | 1 Reconnaissance | architecture + infra feasibility reviewed | **PASS** — research briefs in `docs/research/`; runtime contract proven by live runs |
-| 2 Foundation | stack starts, smoke tests pass, redeployable | **IN PROGRESS** — schema + workspace manifests done; DB, API, compose pending |
-| 3 Core integrations | Discord→DSH→verifiable result; both DSH instances use VoiceStudio | **IN PROGRESS** — DSH execution spine proven; VoiceStudio deployment pending; local MCP pending |
+| 2 Foundation | stack starts, smoke tests pass, redeployable | **PASS (VM)** — schema, API, worker, adapter compile and run on `operant-core` |
+| 3 Core integrations | Discord→DSH→verifiable result; both DSH instances use VoiceStudio | **PARTIAL** — API→worker→DSH→result proven; VoiceStudio deploying; Discord deferred |
 | 4 Hallmark UI | every core workflow works desktop + mobile | NOT STARTED |
 | 5 Learning/recovery | repeat failures detected, investigated, fixed with tests | NOT STARTED |
 | 6 Independent verification | all critical/high defects resolved | NOT STARTED |
-| 7 Deployment/handoff | release deployed, restarts recovered, report written | NOT STARTED |
+| 7 Deployment/handoff | release deployed, restarts recovered, report written | PARTIAL — running on VM via nohup, not yet systemd/compose |
+
+### Verified end-to-end on the VM (2026-11-15)
+
+`POST /v1/requests` → `queued` → worker claim → `dsh --profile operant` →
+`status=succeeded` in 10 s → result text `OPERANT-SLICE-OK`, with
+`dsh_session_id=session-77e85d8b…` persisted and 16 events written.
+
+| Property | Evidence |
+|---|---|
+| Auth fails closed | no token → HTTP 401; wrong token → HTTP 401 |
+| Survives a worker restart | worker killed → task stayed `queued` → worker restarted → `succeeded`, result `RESTART-SURVIVED` |
+| Memory captured | `GET /v1/memory/search?q=OPERANT` returned the episodic entry, `matchedBy=lexical`, score 0.696 |
+| Audit trail | `audit_log`: `task.created` per request |
+| Durable counts | tasks=2 jobs=2 events=16 memories=2 usage=2 |
 
 ---
 

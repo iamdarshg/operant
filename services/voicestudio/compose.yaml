@@ -1,0 +1,62 @@
+# VoiceStudio headless — CPU-only, digest-pinned, loopback-only.
+# Deployed on the `operant-core` GCE VM at /opt/operant/voicestudio/compose.yaml.
+#
+# Deliberate choices (see README.md for the measurements behind them):
+#   * pinned by tag + sha256 digest: an unpinned tag can be re-pushed upstream.
+#   * the port is published on 127.0.0.1 only. Nothing is exposed to the VPC or
+#     the internet and ufw stays default-deny. Reach it with an SSH/IAP tunnel
+#     or Tailscale; never change this to 0.0.0.0 / a bare "3900:3900".
+#   * mem_limit 16g on a 31 GiB box: CPU ASR + TTS need a few GiB, and 16g
+#     leaves the host ~15 GiB so the kernel never OOM-kills sshd/dockerd.
+#     memswap_limit == mem_limit so the container cannot swap-thrash the VM: a
+#     runaway allocation dies inside the cgroup instead of freezing the host.
+#   * /app/omnivoice_data is a named volume so the GBs of HF models survive
+#     `docker compose down` and image upgrades. Do not delete this volume.
+name: voicestudio
+
+services:
+  voicestudio:
+    image: ghcr.io/debpalash/voicestudio:0.5.8@sha256:9cfc492a350ea34ad65ac991cf3b9e0030e3318d684c26435a6a44b074871f0d
+    container_name: voicestudio
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:3900:3900"
+    environment:
+      OMNIVOICE_SERVER_MODE: "1"
+      # CPU-only default engine. The image auto-detects WhisperX first, which
+      # wants large-v3 (+ wav2vec2 alignment) — far too slow on 8 vCPUs. Plain
+      # faster-whisper + small measured 0.248 RTF at 0% WER on the bench clip
+      # (medium: 0.643 RTF, 2.6x slower, same WER). See docs/reports.
+      OMNIVOICE_ASR_BACKEND: "${OMNIVOICE_ASR_BACKEND:-faster-whisper}"
+      ASR_MODEL_FASTER: "${ASR_MODEL_FASTER:-Systran/faster-whisper-small}"
+      # MCP's SDK rejects Host headers it does not consider local. Comma
+      # separated; add the Tailscale MagicDNS name when the tailnet is up.
+      OMNIVOICE_MCP_ALLOWED_HOSTS: "${OMNIVOICE_MCP_ALLOWED_HOSTS:-localhost,127.0.0.1,operant-core}"
+      HF_HOME: /app/omnivoice_data/huggingface
+      # Keep BLAS/OpenMP from oversubscribing 8 vCPUs with concurrent requests.
+      OMP_NUM_THREADS: "${OMP_NUM_THREADS:-4}"
+      MKL_NUM_THREADS: "${MKL_NUM_THREADS:-4}"
+    volumes:
+      - voicestudio_data:/app/omnivoice_data
+    mem_limit: 16g
+    memswap_limit: 16g
+    shm_size: 1g
+    stop_grace_period: 30s
+    # The image's own probe: resolves the live uvicorn port from /proc and
+    # GETs /health (backend/docker_entrypoint.py --health-check).
+    healthcheck:
+      test: ["CMD", "python3", "backend/docker_entrypoint.py", "--health-check"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  voicestudio_data:
+    name: voicestudio_data

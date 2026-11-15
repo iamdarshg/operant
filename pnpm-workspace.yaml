@@ -1,3 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# esbuild (via Vitest/tsx) and sharp (via Next) ship native postinstall build
+# steps. Approve exactly those two rather than allowing all dependency build
+# scripts globally — the supply-chain gate stays on for everything else.
+allowBuilds:
+  esbuild: true
+  sharp: true

@@ -2,8 +2,10 @@
   "name": "operant",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.0.0",
-  "engines": { "node": ">=22" },
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
