@@ -7,6 +7,7 @@ const DESTINATIONS = [
   { href: '/', label: 'Control' },
   { href: '/memory', label: 'Memory' },
   { href: '/approvals', label: 'Approvals' },
+  { href: '/schedules', label: 'Schedules' },
   { href: '/fleet', label: 'Fleet' },
 ];
 

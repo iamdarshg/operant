@@ -113,9 +113,9 @@ actual sha256           = bb5fd045…58ee   (match)
    remain ungated by design.
 5. **The tool boundary reacts, it does not pre-empt.** A command that has already
    executed before the guard parsed the event is not undone.
-6. **Schedules have no UI surface** and no Discord commands; they are API-only.
-   Artifacts **do** now appear on the task page ("Files produced") with a download
-   link, and the proxy passes them through as bytes with a verifiable sha256.
+6. **Schedules and artifacts now have a UI surface** (`/schedules` with create and
+   delete; "Files produced" on the task page). Schedules have **no Discord
+   commands**, so recurring work cannot yet be created from the chat interface.
 7. **The web app keeps duplicate wire types** rather than importing `@operant/core`
    — the one place the contract can drift.
 8. **Backup restore is tested, but only at the database level.** A live dump was

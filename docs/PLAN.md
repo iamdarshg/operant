@@ -796,3 +796,34 @@ exactly — tasks 50, jobs 48, events 2353, memories 43, agents 4, approvals 13,
 artifacts 4 — and real content survived, not just row counts. Scratch database
 dropped afterwards; production health verified healthy. Volume-level backup for the
 speech service remains untested and the report says so.
+
+---
+
+## 23. Round 14 — recurring work becomes usable by a human
+
+The scheduler worked but was API-only, so the platform advertised "scheduled and
+recurring jobs" that no human could create. A capability reachable only with curl
+is not a feature; it is a test fixture.
+
+New `/schedules` screen (in the nav):
+
+- lists each schedule with its **raw recurrence**, next run, last fired (or
+  "never") and enabled state — the three facts needed to trust a cron replacement;
+- a create form that posts the same validated payload as the API, using the
+  **browser's own timezone** rather than a hardcoded one;
+- inline documentation of the supported subset, so an unsupported rule is a
+  visibly refused attempt instead of a silent no-op;
+- per-row delete (the only way to stop a recurring job short of editing the DB).
+
+The proxy gained `GET`/`POST`/`DELETE /v1/schedules`; the form reports the API's
+own rejection (`invalid_rrule`) rather than claiming success.
+
+Verified against the running service:
+
+| Check | Result |
+|---|---|
+| Page lists the existing schedule | "Daily standup summary", `FREQ=DAILY`, zone-labelled time |
+| Nav | `Schedules` present |
+| Create through the proxy (the UI's path) | `Hourly memory sweep`, next run returned |
+| Unsupported rule | **400** refused, not stored |
+| Delete through the proxy | `deleted: true`, list back to 1 |

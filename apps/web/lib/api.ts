@@ -91,7 +91,20 @@ export const api = {
   memory: (q: string) => call<{ results: MemoryResult[] }>(`/v1/memory/search?q=${encodeURIComponent(q)}`),
   agents: () => call<{ agents: Agent[] }>('/v1/agents'),
   approvals: () => call<{ approvals: Approval[] }>('/v1/approvals'),
+  schedules: () =>
+    call<{
+      schedules: {
+        id: string;
+        title: string;
+        rrule: string;
+        timezone: string;
+        enabled: boolean;
+        last_run_at: string | null;
+        next_run_at: string | null;
+      }[];
+    }>('/v1/schedules'),
   usage: () => call<{ usage: Usage }>('/v1/usage'),
 };
 
 export type { Accepted, Agent, Approval, Health, Job, JobEvent, MemoryResult, Result, Task, Usage };
+
