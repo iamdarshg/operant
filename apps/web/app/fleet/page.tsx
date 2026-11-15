@@ -1,6 +1,8 @@
 import { api } from '@/lib/api';
 import { StatusWord } from '@/components/StatusWord';
 
+export const metadata = { title: 'Fleet' };
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 

@@ -3,6 +3,8 @@ import { stamp } from '@/lib/format';
 import { ScheduleForm } from '@/components/ScheduleForm';
 import { ScheduleDelete } from '@/components/ScheduleDelete';
 
+export const metadata = { title: 'Schedules' };
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -85,3 +87,4 @@ export default async function SchedulesPage() {
     </div>
   );
 }
+

@@ -6,6 +6,8 @@ import { JobTape } from '@/components/JobTape';
 import { StatusWord } from '@/components/StatusWord';
 import { AutoRefresh } from '@/components/AutoRefresh';
 
+export const metadata = { title: 'Task' };
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -302,4 +304,5 @@ export default async function TaskPage({
     </>
   );
 }
+
 

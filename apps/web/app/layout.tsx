@@ -5,7 +5,7 @@ import { NavLinks } from '@/components/AppNav';
 import { api } from '@/lib/api';
 
 export const metadata: Metadata = {
-  title: 'Operant control plane',
+  title: { default: 'Operant control plane', template: '%s · Operant' },
   description: 'Operant: requests in, jobs out, with the tape, the queue and the fleet in one place.',
 };
 

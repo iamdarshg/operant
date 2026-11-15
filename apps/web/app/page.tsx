@@ -7,6 +7,8 @@ import { ApprovalRow } from '@/components/ApprovalRow';
 import { AutoRefresh } from '@/components/AutoRefresh';
 import { StatusWord } from '@/components/StatusWord';
 
+export const metadata = { title: 'Control' };
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -266,3 +268,4 @@ export default async function ControlPage() {
     </>
   );
 }
+

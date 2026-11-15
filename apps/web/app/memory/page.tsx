@@ -1,6 +1,8 @@
 import { api } from '@/lib/api';
 import { MemoryWriter } from '@/components/MemoryWriter';
 
+export const metadata = { title: 'Memory' };
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 

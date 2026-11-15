@@ -1821,3 +1821,32 @@ removed locally but its directory was still on the host; it is gone there now to
 Nothing broke, because nothing used them. But "has a memory package" and "has a UI
 package" are exactly the claims an evaluator would check by looking at the tree, and
 they were false. Deleting them makes the tree honest: five packages, all real.
+
+---
+
+## 47. Round 38 — every page has its own title
+
+The QA review's accessibility finding: no per-route `<title>`. Confirmed — all six
+routes rendered the single root title "Operant control plane", so browser tabs,
+history, bookmarks and screen-reader page announcements were identical everywhere.
+That is WCAG 2.4.2 (Page Titled), not a cosmetic nicety.
+
+Added a `title` template on the root layout and a `metadata` export per route, then
+verified the rendered HTML rather than the source:
+
+| Route | `<title>` |
+|---|---|
+| `/` | Control |
+| `/approvals` | Approvals · Operant |
+| `/fleet` | Fleet · Operant |
+| `/memory` | Memory · Operant |
+| `/schedules` | Schedules · Operant |
+| `/tasks/[id]` | Task · Operant |
+
+One wart: the home route renders `Control` without the `· Operant` suffix, because a
+page at the same level as the layout merges differently. Distinct titles were the
+point and all six are distinct, so it is recorded rather than chased.
+
+`/tasks/[id]` uses a static "Task" title. A `generateMetadata` that includes the task
+title would be better for history and bookmarks; it needs a fetch per navigation and
+was not done.
