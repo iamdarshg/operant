@@ -1699,3 +1699,41 @@ Last round I looked for the cause in the worker's code and the unit file. The va
 came from a third place — `.env` via `EnvironmentFile` — and my unit-level override was
 silently outranked. **Read the effective value from the running process; never infer it
 from where you think it is configured.**
+
+---
+
+## 44. Round 35 — a timeout now reports that it failed
+
+The wart from last round: a job that exhausted its retries was recorded as
+`interrupted` whenever the cause was a timeout. That reads like an external
+cancellation, not a job giving up, and it muddies the one status an operator scans
+for problems.
+
+`interrupted` is now reserved for what it actually means — a policy block, where work
+stopped on purpose and is waiting for a human. Everything else that exhausts its
+attempts is `failed`.
+
+### Verified end to end
+`.env` set to 45 000 ms (confirmed in `/proc/<worker>/environ`), a job submitted that
+sleeps 300 s:
+
+```
+final: failed | attempt 2 | "timed out after 45000ms"
+task:  failed
+```
+
+Previously the same run produced `interrupted`. `.env` restored to 900 000 and the
+effective value re-read from `/proc/environ` afterwards; the fixture task was deleted.
+
+### Durability claims, all now evidenced
+| Claim | How it was proven |
+|---|---|
+| an abandoned job is reclaimed | SIGKILL the worker mid-run; a new worker completes it |
+| reclaim counts as a retry | `attempt` 1 → 2 with the unit test covering both directions |
+| retries are bounded | cap 2 → one requeue, then terminal |
+| the cap stops a hopeless job | cap 1 → immediate failure |
+| a hang is killed by the wall clock | 45 s override → "timed out after 45000ms" |
+| a timeout is a failure, not a cancellation | this round |
+
+That closes the durability area. The remaining gaps elsewhere are unchanged and
+listed in the deployment report.

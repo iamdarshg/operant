@@ -352,7 +352,12 @@ async function executeJob(job: JobRow): Promise<void> {
       log('job failed, requeued', { jobId: job.id, attempt: job.attempt, max: job.max_attempts, reason });
     } else {
       await finalizeJob(db, job.id, {
-        status: result.timedOut ? 'interrupted' : 'failed',
+        // A run that exhausted its retries FAILED. It used to be recorded as
+        // `interrupted` merely because the cause was a timeout, which read like an
+        // external cancellation rather than the job giving up. `interrupted` is
+        // reserved for policy blocks, where the work stopped on purpose and awaits
+        // a human.
+        status: 'failed',
         error: reason,
         usage,
         sessionId: result.sessionId,
