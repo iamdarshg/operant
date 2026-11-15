@@ -18,7 +18,7 @@ Docker (`operant-pg`, `restart=unless-stopped`), repo at `/opt/operant-src/opera
 | 1 | Typed control-plane API | **Done** | zod contracts in `packages/core/src/schema.ts`; every `/v1` route 401s without a token; health, tasks, jobs, memory, approvals, usage, voice, learning, schedules, artifacts |
 | 2 | Durable jobs in Postgres | **Done** | `FOR UPDATE SKIP LOCKED` + 180 s leases, append-only `job_events`; survived a mid-job reboot and resumed (see §3) |
 | 3 | Memory kinds | **Done** | `memories.kind` covers episodic/semantic/procedural/failure/evaluation; worker writes episodic + failure rows; tsvector search verified |
-| 4 | Discord bot | **Code complete, gateway untested** | 74 tests, `--check` mode verified live (SSE reader); **no real gateway login** — requires the operator's bot token |
+| 4 | Discord bot | **Code complete, not deployed, gateway untested** | 74 tests passing **locally** (7 files); `--check` mode verified live (SSE reader). Two gaps: it has **never logged into Discord** (needs the bot token), and `apps/bot/src` is **not deployed to the cloud host** — the VM has no bot service unit. It runs only from a checkout. |
 | 5 | Voice transcription | **Done** | VoiceStudio CPU, faster-whisper `small` (measured 0.258 RTF, 0 % WER, 1108 MiB); `/v1/voice/transcribe` accepts `audioBase64` or `ref` |
 | 6 | VoiceStudio MCP on **both** DSH | **Done** | 9 `mcp__voicestudio__*` tools discovered on cloud and laptop profile; foreign `Host` → 403 |
 | 7 | Next.js dashboard, every control functional | **Mostly** | 5 routes; three dead controls found by independent QA were fixed and re-verified (§4). Schedules are not surfaced in the UI |

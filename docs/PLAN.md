@@ -912,3 +912,46 @@ neither harms the layout).
 
 Lesson worth the space: when a measurement disagrees with an approved baseline,
 test the measurement against that baseline before changing the code.
+
+---
+
+## 26. Round 17 — a green test suite that was testing nothing
+
+While substantiating the numbers this report cites, `pnpm --filter @operant/bot run
+test` on the **deployed host** printed:
+
+```
+No test files found, exiting with code 0
+```
+
+A pass. The bot suite had never been run there, because `apps/bot/test/` was never
+copied, and the script carried `--passWithNoTests`, which converts "no tests" into
+"success". That flag is a lie detector turned off: any package whose tests go
+missing reports green.
+
+### What removing the mask exposed
+
+1. **The bot suite passes locally** — 7 files, **74 tests**, all green. So the
+   number this report quotes is real, on a laptop.
+2. **It cannot run on the deployed host**, and the reason is not the tests: the
+   import of `../src/config.js` fails because **`apps/bot/src` does not exist on
+   the VM**. `apps/bot` is empty there, and there is no `operant-bot` service unit.
+   The Discord bot has never been deployed to the cloud host — the deliverable is
+   code and local tests, not a running component.
+
+Fixed the mask (`"test": "vitest run"`), so a missing suite fails loudly from now
+on. Not yet fixed, and now stated plainly in the report: the bot is undeployed.
+
+### Verified totals, this round
+
+| Suite | Result |
+|---|---|
+| `packages/core` | **55 passed** |
+| `packages/dsh-adapter` | **14 passed** |
+| `packages/learning` | **24 passed** |
+| `apps/bot` (local) | **74 passed** (7 files) |
+| `packages/db`, `packages/mcp-client`, `packages/ui`, `apps/web` | no test files |
+
+Note that `packages/db` has no tests, which is uncomfortable: it owns the lease
+claims, the transactional approval decision and the scheduler CAS — the three
+places where a subtle bug is most expensive. That is the next honest gap to close.
