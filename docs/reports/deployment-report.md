@@ -28,7 +28,7 @@ Docker (`operant-pg`, `restart=unless-stopped`), repo at `/opt/operant-src/opera
 | 11 | Scheduled/recurring jobs | **Done (API only)** | RFC 5545 subset, worker tick, live fire verified (§6) |
 | 12 | Artifacts (files produced) | **Done** | collected after each job, sha256-recorded, downloadable with hash verification (§7) |
 | 13 | GCP IaC, no GPU, cost-capped | **Done** | e2-standard-8, asia-south1-c, 100 GB pd-balanced, private VPC, IAP-only SSH, $120 hard cap, 300 h watchdog |
-| 14 | Automated tests | **Done** | **211 tests**: core 55, dsh-adapter 14, learning 24, db 6 (integration, real Postgres), web 38 (proxy allow-list), bot 74 |
+| 14 | Automated tests | **Done** | **224 tests**: core 68, dsh-adapter 14, learning 24, db 6 (integration, real Postgres), web 38 (proxy allow-list), bot 74 |
 | 15 | Security review | **Done** | `docs/reports/security-review.md`, 9 areas, PASS/FAIL with commands |
 | 16 | Independent UI/QA review | **Done** | `docs/reports/qa-review.md` + 47 screenshots in `design/review/` |
 | 17 | Ops runbook | **Done** | `docs/OPERATIONS.md` — secrets checklist, recovery, rollback, extending |
@@ -179,4 +179,5 @@ production after the drill      → {"state":"healthy","checks":[{"name":"postgr
 ```
 
 Not covered: restoring onto a **different host**. Both drills ran on `operant-core`.
+
 

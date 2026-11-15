@@ -1203,3 +1203,40 @@ the prose gate's coverage is **unknown**, not verified — only the phrasings an
 happened to try are known to work. The tool-call boundary exists precisely because
 this layer cannot be trusted alone, and that reasoning is now evidence-backed rather
 than theoretical.
+
+---
+
+## 33. Round 24 — the API now validates what it actually sends
+
+Last round established that `packages/core`'s schemas describe an intended model,
+not the wire, and that **nothing validated responses** — which is why the divergence
+survived. This round closes that for the task endpoints.
+
+### `packages/core/src/wire.ts`
+Schemas written against **real captured responses**, snake_case and nullable, and
+deliberately `passthrough` (the API returns whole database rows, so extra columns
+must not fail). They are strict about the keys the UI depends on: `id` (uuid),
+`intent`, `title`, `status` (the enum), `origin`.
+
+### Enforced at the boundary
+`GET /v1/tasks` and `GET /v1/tasks/:id` now parse their own output before sending
+it. On a mismatch the API logs the offending issues and returns **500
+`response_contract_violation`** rather than serving a shape the UI cannot trust. A
+loud failure beats a blank cell.
+
+### Verified
+- Schema against live data: `list parses: YES (5 tasks)`, `detail parses: YES`.
+- After deploy: `/v1/tasks` → **200**, `/v1/tasks/:id` → **200**, and the API log
+  contains **0** contract violations — so validation passes on every real row.
+- 5 new unit tests including the two that matter: a **renamed/missing** required
+  field and a **non-uuid** id are both rejected, and the list envelope is checked
+  (`{items:[…]}` fails where `{tasks:[…]}` passes).
+
+Core suite: **68 tests**. Running total **224**.
+
+### Not done, stated plainly
+Only the two task endpoints validate. `agents`, `approvals`, `jobs`, `memory`,
+`schedules` and the detail endpoints still return unvalidated rows — the pattern is
+established and the remaining schemas are mechanical, but writing them without
+captured samples would be guessing at the wire format, which is the exact mistake
+being corrected here.

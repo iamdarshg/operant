@@ -26,6 +26,8 @@ import {
   TERMINAL_JOB_STATUSES,
   assessIntent,
   nextRunAt,
+  TaskListWire,
+  TaskDetailWire,
 } from '@operant/core';
 import {
   cancelTask,
@@ -299,17 +301,24 @@ app.get('/v1/tasks', async (req) => {
     })
     .parse(req.query);
 
-  if (q.conversationId) {
-    // Resolve the caller's external reference, never expose our internal ids as
-    // the identity a client must remember.
-    const tasks = await db`
-      SELECT t.* FROM tasks t
-        JOIN conversations c ON c.id = t.conversation_id
-       WHERE c.external_ref = ${q.conversationId}
-       ORDER BY t.created_at DESC LIMIT ${q.limit}`;
-    return { tasks };
+  const tasks = q.conversationId
+    ? // Resolve the caller's external reference, never expose our internal ids as
+      // the identity a client must remember.
+      await db`
+        SELECT t.* FROM tasks t
+          JOIN conversations c ON c.id = t.conversation_id
+         WHERE c.external_ref = ${q.conversationId}
+         ORDER BY t.created_at DESC LIMIT ${q.limit}`
+    : await listTasks(db, q.limit, q.status);
+
+  // Validate what we are about to send. Nothing did this before, which is how the
+  // declared types drifted away from the wire format unnoticed.
+  const parsed = TaskListWire.safeParse({ tasks });
+  if (!parsed.success) {
+    req.log.error({ issues: parsed.error.issues.slice(0, 5) }, 'task list violates the wire contract');
+    throw Object.assign(new Error('response_contract_violation'), { statusCode: 500 });
   }
-  return { tasks: await listTasks(db, q.limit, q.status) };
+  return parsed.data;
 });
 
 app.get('/v1/tasks/:id', async (req, reply) => {
@@ -317,7 +326,13 @@ app.get('/v1/tasks/:id', async (req, reply) => {
   const task = await getTask(db, id);
   if (!task) return reply.code(404).send({ error: 'not_found' });
   const jobs = await getJobsForTask(db, id);
-  return { task, jobs };
+
+  const parsed = TaskDetailWire.safeParse({ task, jobs });
+  if (!parsed.success) {
+    req.log.error({ issues: parsed.error.issues.slice(0, 5) }, 'task detail violates the wire contract');
+    throw Object.assign(new Error('response_contract_violation'), { statusCode: 500 });
+  }
+  return parsed.data;
 });
 
 app.post('/v1/tasks/:id/cancel', async (req, reply) => {
@@ -755,5 +770,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 
 await app.listen({ port: PORT, host: HOST });
 app.log.info({ port: PORT, host: HOST, profile: DSH_PROFILE }, 'operant api listening');
+
+
 
 
