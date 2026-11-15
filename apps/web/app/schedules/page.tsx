@@ -45,7 +45,7 @@ export default async function SchedulesPage() {
       ) : null}
 
       {schedules.length > 0 ? (
-        <table className="table">
+        <table className="data">
           <thead>
             <tr>
               <th scope="col">Title</th>
@@ -59,11 +59,11 @@ export default async function SchedulesPage() {
           <tbody>
             {schedules.map((schedule) => (
               <tr key={schedule.id}>
-                <td>{schedule.title}</td>
-                <td className="meta">{schedule.rrule}</td>
-                <td className="meta">{stamp(schedule.next_run_at)}</td>
-                <td className="meta">{schedule.last_run_at ? stamp(schedule.last_run_at) : 'never'}</td>
-                <td>{schedule.enabled ? 'enabled' : 'disabled'}</td>
+                <td data-label="Title">{schedule.title}</td>
+                <td className="meta" data-label="Recurrence">{schedule.rrule}</td>
+                <td className="meta" data-label="Next run">{stamp(schedule.next_run_at)}</td>
+                <td className="meta" data-label="Last fired">{schedule.last_run_at ? stamp(schedule.last_run_at) : 'never'}</td>
+                <td data-label="State">{schedule.enabled ? 'enabled' : 'disabled'}</td>
                 <td>
                   <ScheduleDelete id={schedule.id} title={schedule.title} />
                 </td>
@@ -73,7 +73,10 @@ export default async function SchedulesPage() {
         </table>
       ) : null}
 
-      <div className="container" style={{ marginTop: 'var(--space-xl)' }}>
+      {/* No nested .container: a second one doubles the horizontal padding and
+          pushes the page past the viewport at 390px (measured: the footer, which
+          this page does not own, was clipped too). */}
+      <div style={{ marginTop: 'var(--space-xl)' }}>
         <div className="section-head">
           <h2>Add a schedule</h2>
         </div>

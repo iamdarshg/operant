@@ -271,7 +271,7 @@ export default async function TaskPage({
             automatically once the job finishes.
           </p>
         ) : (
-          <table className="table">
+          <table className="data">
             <thead>
               <tr>
                 <th scope="col">File</th>
@@ -284,10 +284,10 @@ export default async function TaskPage({
             <tbody>
               {artifacts.map((file) => (
                 <tr key={file.id}>
-                  <td>{file.filename}</td>
-                  <td className="meta">{file.mime_type}</td>
-                  <td className="meta">{Number(file.bytes).toLocaleString('en-GB')} B</td>
-                  <td className="meta" title={file.sha256}>
+                  <td data-label="File">{file.filename}</td>
+                  <td className="meta" data-label="Type">{file.mime_type}</td>
+                  <td className="meta" data-label="Size">{Number(file.bytes).toLocaleString('en-GB')} B</td>
+                  <td className="meta" data-label="sha256" title={file.sha256}>
                     {file.sha256.slice(0, 12)}…
                   </td>
                   <td>
@@ -302,3 +302,4 @@ export default async function TaskPage({
     </>
   );
 }
+

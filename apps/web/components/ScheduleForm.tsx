@@ -68,8 +68,8 @@ export function ScheduleForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="compose">
-      <div className="compose__field">
+    <form onSubmit={onSubmit} className="write-form">
+      <div className="field">
         <label className="label" htmlFor={`${uid}-title`}>
           What is it called
         </label>
@@ -84,8 +84,8 @@ export function ScheduleForm() {
         />
       </div>
 
-      <div className="compose__row">
-        <div className="compose__field">
+      <div className="field field--wide" style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: "var(--space-md)" }}>
+        <div className="field">
           <label className="label" htmlFor={`${uid}-rrule`}>
             Recurrence
           </label>
@@ -99,7 +99,7 @@ export function ScheduleForm() {
             aria-describedby={`${uid}-hint`}
           />
         </div>
-        <div className="compose__field">
+        <div className="field">
           <label className="label" htmlFor={`${uid}-agent`}>
             Agent
           </label>
@@ -119,12 +119,12 @@ export function ScheduleForm() {
       </div>
 
       <p className="label" id={`${uid}-hint`}>
-        Supported: <code>FREQ=DAILY|WEEKLY|HOURLY</code>, <code>INTERVAL</code>, <code>BYHOUR</code>,{' '}
-        <code>BYMINUTE</code>, and <code>BYDAY</code> with WEEKLY. Anything else is refused rather than
-        mis-scheduled. Times use your browser zone.
+        Supported: FREQ=DAILY, FREQ=WEEKLY or FREQ=HOURLY, plus INTERVAL, BYHOUR, BYMINUTE, and
+        BYDAY when the frequency is weekly. Anything else is refused rather than mis-scheduled.
+        Times use your browser zone.
       </p>
 
-      <div className="compose__field">
+      <div className="field">
         <label className="label" htmlFor={`${uid}-prompt`}>
           What the agent should do
         </label>
@@ -139,9 +139,11 @@ export function ScheduleForm() {
         />
       </div>
 
-      <button className="btn btn--primary" type="submit" disabled={busy}>
-        {busy ? 'Scheduling…' : 'Schedule it'}
-      </button>
+      <div className="write-form__actions">
+        <button className="btn btn--primary" type="submit" disabled={busy}>
+          {busy ? 'Scheduling…' : 'Schedule it'}
+        </button>
+      </div>
 
       {error ? (
         <p className="feedback feedback--error" role="alert">

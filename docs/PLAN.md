@@ -872,3 +872,43 @@ traces. `systemctl reset-failed` was the fix both times. I also used an expandin
 PowerShell here-string (`@"..."@`), which made `systemctl` run on the laptop
 instead of the VM. Both are now habits: reset-failed after any failed unit, and
 `@'...'@` for anything containing `$(`.
+
+---
+
+## 25. Round 16 — evidence screenshots, and a chase after a bug that was not there
+
+Added `design/evidence/` with screenshots of the two screens built this session
+(`schedules-1440.png`, `schedules-768.png`, `task-artifacts-1440.png`) so the
+recurring-work and produced-files surfaces have the same evidence standard as the
+reviewed screens.
+
+### Two genuine defects the first screenshot exposed
+1. **Invented table class.** I wrote `<table className="table">`; the app has no
+   `.table` rule — its tables are `.data` and every cell carries `data-label` for
+   the stacked mobile layout. Rendered as a squeezed row with columns glued
+   together ("Daily standup summaryFREQ=DAILY…"). Fixed to match the real pattern.
+2. **Invented form classes.** I wrote `compose`/`compose__field`; the app uses
+   `write-form`/`field`/`write-form__actions`. Without those the inputs had no
+   layout constraints. Fixed.
+
+Both were found by looking at the rendered image, not by reading the JSX.
+
+### Then I chased a phantom
+The 390 px captures showed text and inputs clipped at the right edge, so I spent
+two attempts "fixing" an overflow — first blaming a nested `.container`, then a
+non-wrapping hint. Both were plausible and neither was the cause.
+
+The decisive test: capture the **memory page** — which QA had already approved at
+390 — with the same tool. It clips identically. Windows Chrome enforces a minimum
+window width, so `--window-size=390` lays out wider than 390 and the screenshot
+crops it. The tool was wrong, not the page.
+
+Consequence: evidence is captured at 1440 and 768 (widths the tool honours), the
+misleading 390 images were deleted, and **390 px remains verified only by the
+earlier puppeteer-based QA pass**, not by this one. The two class fixes above are
+still real and are kept; the "overflow fixes" were kept only where they were
+independently correct (the hint now wraps, and the nested container is gone —
+neither harms the layout).
+
+Lesson worth the space: when a measurement disagrees with an approved baseline,
+test the measurement against that baseline before changing the code.
