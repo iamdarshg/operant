@@ -731,3 +731,39 @@ licence, git-history rewrite).
 `pnpm -r run test`: core **55**, dsh-adapter **14**, learning **24** = **93**
 passing. The bot (74) and web suites were last green earlier and were not re-run in
 this pass; the deployment report says so rather than implying otherwise.
+
+---
+
+## 21. Round 12 — `allowed_tools` now actually authorizes
+
+The security review's point was precise: per-agent `allowed_tools` existed, was
+readable, and gated **nothing**. It granted exactly the same permissions as no list
+at all.
+
+Enforcement now sits in the same tool-call guard as the destructive-command policy:
+
+- Only **privileged** tools are gated (bash, pwsh, shell, write, edit, multiedit,
+  apply_patch). Gating read/glob/grep/web_*/job_* would break agents for no safety
+  gain — a permission list that blocks reading is theatre.
+- An empty list means **unspecified**, not "nothing allowed". Failing closed there
+  would silently break every agent that predates the column.
+- A permission violation finalises as a **failed job with no approval created**.
+  Offering "approve" would let the approval path grant what the agent's
+  configuration explicitly withholds — the opposite of the intended direction.
+
+Verified:
+
+| Agent | Declared tools | Request | Result |
+|---|---|---|---|
+| research | read, glob, grep, web_search, web_fetch | "write a file…" | failed — `tool-not-permitted: agent 'research' may not use bash`, **0 approvals** |
+| engineering | read, write, edit, glob, grep, pwsh, bash | "write a file…" | **succeeded** (no regression) |
+
+### Two self-inflicted failures worth recording
+1. My comment contained `web_*/job_*` — the `*/` **closed the block comment early**
+   and the worker died on `SyntaxError: Unexpected token ';'`. TypeScript caught it;
+   the deployed systemd unit then entered a start-limit failure loop.
+2. I then read the journal and concluded the build was still broken — but the
+   `SyntaxError` timestamps **predated the fix**. The real cause of the second
+   failure was systemd's rate limit ("Start request repeated too quickly"). The
+   remedy was `systemctl reset-failed`, not another code change. Read timestamps
+   before trusting an error message.

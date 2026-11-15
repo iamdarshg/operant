@@ -105,8 +105,12 @@ actual sha256           = bb5fd045…58ee   (match)
    `POST /v1/audio/speech` with `model:"kittentts"` does work.
 3. **VoiceStudio `/mcp` is unauthenticated** (upstream design). Mitigated only by
    loopback binding + IAP. Anyone on the VM can call its 9 tools.
-4. **`allowed_tools` per agent is documentation, not enforcement.** There is no
-   per-tool authorization.
+4. **Per-agent tool authorization is enforced for privileged tools only** (`bash`,
+   `pwsh`, `shell`, `write`, `edit`, `multiedit`, `apply_patch`). A `research`
+   agent is refused the shell, and that refusal is a hard failure with **no
+   approval offered** — it is configuration, not a decision a human should be able
+   to overrule. Observational tools (`read`, `glob`, `grep`, `web_*`, `job_*`)
+   remain ungated by design.
 5. **The tool boundary reacts, it does not pre-empt.** A command that has already
    executed before the guard parsed the event is not undone.
 6. **Schedules and artifacts have no UI surface.** Both are API-only.

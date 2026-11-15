@@ -101,15 +101,20 @@ class EventBuffer {
 }
 
 /** Build the prompt actually handed to the agent, including its role overlay. */
-async function promptFor(job: JobRow): Promise<{ prompt: string; permissionMode: string }> {
+async function promptFor(job: JobRow): Promise<{ prompt: string; permissionMode: string; allowedTools: string[] }> {
   const [agent] = (await db`
-    SELECT system_overlay, permission_mode FROM agents WHERE id = ${job.agent_id}`) as {
+    SELECT system_overlay, permission_mode, allowed_tools FROM agents WHERE id = ${job.agent_id}`) as {
     system_overlay: string;
     permission_mode: string;
+    allowed_tools: string[] | null;
   }[];
   const overlay = agent?.system_overlay?.trim();
   const prompt = overlay ? `${overlay}\n\n---\n\n${job.prompt}` : job.prompt;
-  return { prompt, permissionMode: agent?.permission_mode ?? job.permission_mode };
+  return {
+    prompt,
+    permissionMode: agent?.permission_mode ?? job.permission_mode,
+    allowedTools: (agent?.allowed_tools ?? []).map((t) => t.toLowerCase()),
+  };
 }
 
 async function executeJob(job: JobRow): Promise<void> {
@@ -126,7 +131,7 @@ async function executeJob(job: JobRow): Promise<void> {
   await mkdir(job.workspace_path, { recursive: true });
 
   const buffer = new EventBuffer(job.id);
-  const { prompt, permissionMode } = await promptFor(job);
+  const { prompt, permissionMode, allowedTools: agentTools } = await promptFor(job);
 
   log('job start', { jobId: job.id, kind: job.kind, agent: job.agent_id, attempt: job.attempt });
 
@@ -154,6 +159,13 @@ async function executeJob(job: JobRow): Promise<void> {
       // on how the request was phrased: if the agent is about to run something
       // consequential, it stops here and a human decides.
       guardToolCall: (tool, toolArgs) => {
+        // Per-agent tool authorization. An empty list means "unspecified", not
+        // "nothing allowed" — failing closed there would silently break every
+        // agent that predates this column.
+        const permitted = agentTools.length === 0 || agentTools.includes(tool.toLowerCase());
+        if (!permitted && PRIVILEGED_TOOLS.has(tool.toLowerCase())) {
+          return { block: true, reason: `${NOT_PERMITTED}: agent '${job.agent_id}' may not use ${tool}` };
+        }
         // A human may have approved ONE exact command for this job. Permitting
         // only an exact match (not a substring) keeps the approval narrow: it
         // cannot be widened into "run anything that contains this string".
@@ -205,6 +217,24 @@ async function executeJob(job: JobRow): Promise<void> {
   // same rule. Escalate: the task waits for a human, and approving it launches a
   // fresh job that is explicitly permitted to run the approved command.
   if (result.blockedByPolicy) {
+    // A permission violation is not a decision for a human to overrule: the agent
+    // simply is not allowed to use that tool. Offering an "approve" here would let
+    // the approval path grant what the agent configuration explicitly withholds.
+    if (result.blockedByPolicy.reason.startsWith(NOT_PERMITTED)) {
+      await finalizeJob(db, job.id, {
+        status: 'failed',
+        error: result.blockedByPolicy.reason,
+        usage,
+        sessionId: result.sessionId,
+      });
+      log('tool not permitted for agent; job failed', {
+        jobId: job.id,
+        agent: job.agent_id,
+        tool: result.blockedByPolicy.tool,
+      });
+      return;
+    }
+
     const verdict = assessToolCall(result.blockedByPolicy.tool, result.blockedByPolicy.args);
     const approvedPrompt = [
       `The operator approved this exact command for this task: ${JSON.stringify(result.blockedByPolicy.args).slice(0, 800)}`,
@@ -476,6 +506,20 @@ function mimeFor(name: string): string {
   };
   return map[ext] ?? 'application/octet-stream';
 }
+
+/**
+ * Tools that can change the machine or the workspace.
+ *
+ * `allowed_tools` was stored per agent and enforced by nothing — the security
+ * review called it documentation, correctly. Only these tools are gated: gating
+ * observational tools (read, glob, grep, the web tools, job inspection) would
+ * break agents for no safety gain, and a permission list that blocks reading is
+ * theatre.
+ */
+const PRIVILEGED_TOOLS = new Set(['bash', 'pwsh', 'shell', 'write', 'edit', 'multiedit', 'apply_patch']);
+
+/** Reason prefix used to distinguish "not permitted" from "dangerous". */
+const NOT_PERMITTED = 'tool-not-permitted';
 
 async function loop(slot: number): Promise<void> {
   active += 1;

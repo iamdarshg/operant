@@ -758,3 +758,13 @@ export async function getArtifact(db: Db, id: string): Promise<ArtifactRow | nul
   const [row] = await db<ArtifactRow[]>`SELECT * FROM artifacts WHERE id = ${id}`;
   return row ?? null;
 }
+
+/** One agent row, for runtime authorization decisions. */
+export async function getAgent(
+  db: Db,
+  id: string,
+): Promise<{ id: string; allowed_tools: string[]; permission_mode: string } | null> {
+  const [row] = await db<{ id: string; allowed_tools: string[]; permission_mode: string }[]>`
+    SELECT id, allowed_tools, permission_mode FROM agents WHERE id = ${id}`;
+  return row ?? null;
+}
