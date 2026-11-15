@@ -1557,3 +1557,41 @@ The mid-flight test now proves reclaim *and* correct retry accounting, but not t
 end condition: I did not make a job fail repeatedly to watch it exhaust its attempts
 and be marked permanently failed. That specific path — cap reached → job `failed`,
 task failed, incident recorded — is still unexercised.
+
+---
+
+## 41. Round 32 — the retry cap and the retry loop both verified
+
+Closed the gap named last round: whether a job that cannot succeed is actually stopped.
+
+### Cap of 1: fails immediately
+A job pointed at a non-existent DSH profile (deterministic failure, real code path):
+
+```
+job  failed | attempt 1 | max_attempts 1 | "turn ended with reason \"unknown\" (exit 1)"
+task failed
+incidents for task            1
+job rows for task             1   <- it did not keep retrying
+```
+
+### Cap of 2: retries exactly once, then fails
+```
+t+5s   job failed | attempt 2 | max_attempts 2
+worker log: "job failed, requeued {"attempt":1,"max":2,"reason":"turn ended with reason unknown (exit 1)"}"
+task failed
+```
+
+That `requeued` line is the proof that the counter and the cap cooperate. **Before last
+round's fix this loop was infinite**: `attempt` stayed at 1, `1 < 2` was always true,
+and a permanently failing job would have been requeued forever, burning model calls
+until someone noticed. The fix turned a silent infinite loop into a bounded retry.
+
+### Cleanup
+Both fixtures were inserted directly into Postgres to exercise the worker, and were
+deleted afterwards so they do not appear as real work in the operator's task list.
+
+### What remains unverified in this area
+Nothing I can think of for retries. The related gap is different: a job whose *worker*
+dies is reclaimed by lease expiry (verified last round), but a job that hangs while
+the worker stays alive is bounded only by `JOB_TIMEOUT_MS`, which I have not exercised
+by hanging one deliberately.
