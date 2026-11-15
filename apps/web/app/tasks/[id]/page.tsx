@@ -19,6 +19,10 @@ export default async function TaskPage({
   const { id } = await params;
   const { job: jobParam } = await searchParams;
   const result = await api.task(id);
+  // Files the job actually produced. Fetched separately so a missing artifact
+  // table or an empty list cannot hide the task itself.
+  const artifactsResult = await api.artifacts(id);
+  const artifacts = artifactsResult.ok ? artifactsResult.data.artifacts : [];
 
   if (!result.ok) {
     return (
@@ -253,6 +257,47 @@ export default async function TaskPage({
             </div>
           </div>
         ) : null}
+      </div>
+    <div className="container" style={{ marginTop: 'var(--space-xl)' }}>
+        <div className="section-head">
+          <h2>Files produced</h2>
+          <span className="meta">
+            {artifactsResult.ok ? `${artifacts.length} ${artifacts.length === 1 ? 'file' : 'files'}` : 'file list did not load'}
+          </span>
+        </div>
+        {artifacts.length === 0 ? (
+          <p className="pending-block">
+            This task produced no files. Anything the agent saved inside its working directory is collected here
+            automatically once the job finishes.
+          </p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th scope="col">File</th>
+                <th scope="col">Type</th>
+                <th scope="col">Size</th>
+                <th scope="col">sha256</th>
+                <th scope="col" />
+              </tr>
+            </thead>
+            <tbody>
+              {artifacts.map((file) => (
+                <tr key={file.id}>
+                  <td>{file.filename}</td>
+                  <td className="meta">{file.mime_type}</td>
+                  <td className="meta">{Number(file.bytes).toLocaleString('en-GB')} B</td>
+                  <td className="meta" title={file.sha256}>
+                    {file.sha256.slice(0, 12)}…
+                  </td>
+                  <td>
+                    <a href={`/api/v1/artifacts/${file.id}/download`}>Download</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </>
   );

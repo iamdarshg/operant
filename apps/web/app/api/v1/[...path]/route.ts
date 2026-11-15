@@ -18,21 +18,29 @@ const GETTABLE: RegExp[] = [
   /^health$/,
   /^tasks$/,
   new RegExp(`^tasks/${ID}$`),
+  // A task's produced files: the deliverable surface. Without these the platform
+  // recorded artifacts the browser could never reach.
+  new RegExp(`^tasks/${ID}/artifacts$`),
+  new RegExp(`^artifacts/${ID}/download$`),
   new RegExp(`^jobs/${ID}$`),
   new RegExp(`^jobs/${ID}/events$`),
   new RegExp(`^jobs/${ID}/stream$`),
   /^memory\/search$/,
   /^agents$/,
   /^approvals$/,
+  /^schedules$/,
   /^usage$/,
 ];
 
 const POSTABLE: RegExp[] = [
   /^requests$/,
   /^memory$/,
+  /^schedules$/,
   new RegExp(`^tasks/${ID}/cancel$`),
   new RegExp(`^approvals/${ID}/decide$`),
 ];
+
+const DELETABLE: RegExp[] = [new RegExp(`^schedules/${ID}$`)];
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -41,9 +49,9 @@ function json(body: unknown, status: number): Response {
   });
 }
 
-async function forward(req: NextRequest, segments: string[], method: 'GET' | 'POST'): Promise<Response> {
+async function forward(req: NextRequest, segments: string[], method: 'GET' | 'POST' | 'DELETE'): Promise<Response> {
   const key = segments.join('/');
-  const table = method === 'GET' ? GETTABLE : POSTABLE;
+  const table = method === 'GET' ? GETTABLE : method === 'POST' ? POSTABLE : DELETABLE;
   if (!table.some((re) => re.test(key))) {
     return json({ error: 'endpoint_not_proxied', path: `/v1/${key}` }, 404);
   }
@@ -91,6 +99,23 @@ async function forward(req: NextRequest, segments: string[], method: 'GET' | 'PO
     });
   }
 
+  // Binary deliverables (artifacts) must pass through as bytes. Decoding every
+  // response as text — as this proxy first did — silently corrupts any file that
+  // is not valid UTF-8, so a download would "work" and produce a broken file.
+  const textual = /^text\/|^application\/(json|xml)|javascript|^image\/svg/i.test(type);
+  if (!textual) {
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        'content-type': type,
+        'content-disposition': upstream.headers.get('content-disposition') ?? 'attachment',
+        'content-length': upstream.headers.get('content-length') ?? '',
+        'x-content-sha256': upstream.headers.get('x-content-sha256') ?? '',
+        'cache-control': 'no-store',
+      },
+    });
+  }
+
   const text = await upstream.text();
   return new Response(text, {
     status: upstream.status,
@@ -106,4 +131,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ path: strin
 export async function POST(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params;
   return forward(req, path, 'POST');
+}
+
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  const { path } = await ctx.params;
+  return forward(req, path, 'DELETE');
 }

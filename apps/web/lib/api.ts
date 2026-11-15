@@ -81,6 +81,10 @@ export const api = {
   tasks: (limit = 50, status?: string) =>
     call<{ tasks: Task[] }>(`/v1/tasks?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ''}`),
   task: (id: string) => call<{ task: Task; jobs: Job[] }>(`/v1/tasks/${id}`),
+  artifacts: (id: string) =>
+    call<{
+      artifacts: { id: string; filename: string; mime_type: string; bytes: string | number; sha256: string; created_at: string }[];
+    }>(`/v1/tasks/${id}/artifacts`),
   cancel: (id: string) => call<{ cancelled: boolean }>(`/v1/tasks/${id}/cancel`, { method: 'POST' }),
   job: (id: string) => call<{ job: Job }>(`/v1/jobs/${id}`),
   events: (jobId: string, after = -1) => call<{ events: JobEvent[] }>(`/v1/jobs/${jobId}/events?after=${after}`),

@@ -767,3 +767,32 @@ Verified:
    failure was systemd's rate limit ("Start request repeated too quickly"). The
    remedy was `systemctl reset-failed`, not another code change. Read timestamps
    before trusting an error message.
+
+---
+
+## 22. Round 13 — artifacts reachable from the browser, and a restore was actually tested
+
+### Artifacts had no browser surface
+The previous round began recording artifacts, but the proxy whitelist did not
+include them, so the platform stored deliverables the dashboard could never show.
+
+- Proxy now permits `tasks/:id/artifacts` and `artifacts/:id/download`, plus
+  `GET`/`POST`/`DELETE /v1/schedules`.
+- **Binary passthrough fixed.** The proxy decoded every response as text, which
+  silently corrupts any file that is not valid UTF-8 — a download would "succeed"
+  and hand back a broken file. Non-textual content types now stream through with
+  their headers, including `x-content-sha256`.
+- The task page renders a **"Files produced"** table (name, type, size, hash
+  prefix, download link).
+
+Verified through the proxy: list returned 1 artifact (`report.md`), the download
+returned 28 bytes `hello from the artifact test`, and the local sha256
+(`bb5fd045…58ee`) equalled the hash served by the API. Task page contains the
+section, the link, and the filename.
+
+### Backup restore is no longer an untested claim
+`pg_dump -Fc` (258 KB) restored into a **scratch** database reproduced every count
+exactly — tasks 50, jobs 48, events 2353, memories 43, agents 4, approvals 13,
+artifacts 4 — and real content survived, not just row counts. Scratch database
+dropped afterwards; production health verified healthy. Volume-level backup for the
+speech service remains untested and the report says so.

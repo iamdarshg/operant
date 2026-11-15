@@ -113,11 +113,15 @@ actual sha256           = bb5fd045…58ee   (match)
    remain ungated by design.
 5. **The tool boundary reacts, it does not pre-empt.** A command that has already
    executed before the guard parsed the event is not undone.
-6. **Schedules and artifacts have no UI surface.** Both are API-only.
+6. **Schedules have no UI surface** and no Discord commands; they are API-only.
+   Artifacts **do** now appear on the task page ("Files produced") with a download
+   link, and the proxy passes them through as bytes with a verifiable sha256.
 7. **The web app keeps duplicate wire types** rather than importing `@operant/core`
    — the one place the contract can drift.
-8. **No restore-from-backup test.** Backup commands are documented and volume names
-   are real, but a restore has not been exercised.
+8. **Backup restore is tested, but only at the database level.** A live dump was
+   restored into a scratch database and reproduced every row count and real content
+   (see §10). Docker-volume backup/restore for the speech service's data directory
+   is still untested.
 9. **Token still in git history** (`1feda7c`). Rotated and dead; purging history is
    a rewrite that needs your approval.
 
@@ -126,3 +130,20 @@ actual sha256           = bb5fd045…58ee   (match)
 Measured $0.33242/h compute (e2-standard-8 on-demand) + $0.12/GB-month disk. The
 300-hour watchdog stops the VM at ≈ $104.66, inside the approved $120 cap. Budget
 `operant-hard-cap` exists; **alerts do not stop billing**, the watchdog is what does.
+---
+
+## 10. Acceptance test: a backup actually restores
+
+Performed against the live database, into a **scratch** database so production was
+never touched.
+
+```
+pg_dump -Fc                      → 258,412 bytes
+source  : tasks=50 jobs=48 events=2353 memories=43 agents=4 approvals=13 artifacts=4
+restored: tasks=50 jobs=48 events=2353 memories=43 agents=4 approvals=13 artifacts=4
+content : "Done. Created `ok.md` in the working dir"   (not just counts)
+cleanup : scratch database dropped; production health = healthy
+```
+
+Identical counts and surviving text, so the dump is a real backup rather than a
+file that merely exists.
