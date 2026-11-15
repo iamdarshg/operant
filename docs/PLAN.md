@@ -995,3 +995,33 @@ test is for and a demo is not.
 
 ### `--passWithNoTests` removed from `packages/db` too
 It now has tests, so the mask comes off; a missing suite fails loudly.
+
+---
+
+## 28. Round 19 — the state volume restores, and a package that was only a name
+
+### Volume restore is no longer an untested claim
+The logical dump test covered rows; this covers the physical volume, which is what
+a recovery actually restores. `operant-pgdata` → tar → scratch volume:
+**1368 files in, 1368 out**, `PG_VERSION` = 16, production still healthy
+afterwards, scratch volume and backup removed. Both drills ran on the same host, so
+restoring onto a *different* machine is still untested — the report says exactly
+that instead of implying a full disaster-recovery rehearsal.
+
+Only one named volume exists (`operant-pgdata`); job workspaces are host
+directories, so their backup is an ordinary file copy, not a volume operation.
+
+### `packages/mcp-client` was a package with no code
+Its entire contents were `package.json` and `tsconfig.json`. Nothing in
+`apps/api` or `apps/worker` imported it, yet `apps/api/package.json` declared it as
+a workspace dependency. It looked like MCP capability in the dependency graph while
+being nothing at all — the same class of defect as the dead `schedules` and
+`artifacts` tables: a name that implies work nobody did.
+
+Removed the package and the dependency. Rebuilt the dependency chain
+(core → db → learning → dsh-adapter → worker/api): all clean.
+
+(Worth noting for future rounds: the worker build initially appeared broken after
+the removal, but the errors were unresolved `@operant/*` modules because those
+packages had never been built *locally* — they were built on the VM. The failure was
+my local checkout, not the change.)

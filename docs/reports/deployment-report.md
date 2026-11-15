@@ -122,10 +122,12 @@ actual sha256           = bb5fd045…58ee   (match)
    commands**, so recurring work cannot yet be created from the chat interface.
 7. **The web app keeps duplicate wire types** rather than importing `@operant/core`
    — the one place the contract can drift.
-8. **Backup restore is tested, but only at the database level.** A live dump was
-   restored into a scratch database and reproduced every row count and real content
-   (see §10). Docker-volume backup/restore for the speech service's data directory
-   is still untested.
+8. **Both backup paths are now exercised.** A live `pg_dump` restored into a scratch
+   database reproduced every row count and real content (§10), and the actual state
+   volume (`operant-pgdata`) was backed up and restored into a scratch volume:
+   **1368 files in, 1368 files out**, `PG_VERSION` = 16, production healthy
+   afterwards, scratch volume removed. What is still untested is restoring onto a
+   *different host*, not onto the same machine.
 9. **Token still in git history** (`1feda7c`). Rotated and dead; purging history is
    a rewrite that needs your approval.
 
@@ -151,3 +153,20 @@ cleanup : scratch database dropped; production health = healthy
 
 Identical counts and surviving text, so the dump is a real backup rather than a
 file that merely exists.
+
+---
+
+## 11. Acceptance test: the state volume restores
+
+The database dump test (§10) covers logical state. This covers the physical volume,
+which is what a real recovery actually restores.
+
+```
+tar the operant-pgdata volume   → source: 1368 files
+extract into a scratch volume   → restored: 1368 files
+PG_VERSION                      → 16 (a readable Postgres data directory)
+cleanup                         → scratch volume removed, backup deleted
+production after the drill      → {"state":"healthy","checks":[{"name":"postgres","state":"healthy"}]}
+```
+
+Not covered: restoring onto a **different host**. Both drills ran on `operant-core`.
