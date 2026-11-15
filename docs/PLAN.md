@@ -1060,3 +1060,46 @@ I guessed the entry point was `dist/main.js` (it is `dist/index.js`), and I wrap
 the script in `set -e` while running a command that is *supposed* to exit 1, so the
 harness reported failure around a successful install. Verify the artifact's own
 contract instead of assuming a filename or an exit code.
+
+---
+
+## 30. Round 21 — the proxy allow-list gets tests before it gets trust
+
+The dashboard proxy attaches the control-plane bearer **server-side**, so every
+path it forwards is reachable by any browser that can load the dashboard. That
+makes the allow-list a security boundary — and it was three regex arrays buried in
+a route file with zero tests.
+
+Extracted to `apps/web/lib/proxy-policy.ts` exposing `isProxied(method, segments)`,
+with the route now calling it. **38 tests**, covering what is reachable *and* what
+is not:
+
+| Class | Examples asserted false |
+|---|---|
+| unknown routes | `/v1/nope`, `/v1/learning/summary`, `/v1/voice/health` |
+| traversal | `tasks/../../etc/passwd`, `artifacts/../../../etc/passwd/download` |
+| id shape | `tasks/123`, `jobs/not-a-uuid` |
+| extra segments | `tasks/<uuid>/extra`, `jobs/<uuid>/events/more` |
+| wrong method | `GET /requests`, `POST /tasks`, `DELETE /tasks/<uuid>` |
+| prefix confusion | `tasksXYZ`, `health/extra`, `requests/extra` |
+| case | `/v1/TASKS` |
+
+The exactness tests matter most: a single `startsWith` instead of a full-match regex
+would have made `tasksXYZ` reachable while looking correct.
+
+Then verified the same claims **live**, not only in vitest:
+
+```
+GET /api/v1/tasks            -> 2 tasks        (proxied)
+GET /api/v1/schedules        -> 1 schedule     (proxied)
+GET /api/v1/learning/summary -> 404            (refused)
+GET /api/v1/voice/health     -> 404            (refused)
+GET /api/v1/tasks/../../etc/passwd -> 404      (refused)
+/, /schedules, /approvals    -> 200            (pages render)
+```
+
+`apps/web` also gained `vitest` and lost `--passWithNoTests`, so its first real
+suite cannot silently disappear.
+
+Running total: **211 tests** (core 55, dsh-adapter 14, learning 24, db 6, web 38,
+bot 74).

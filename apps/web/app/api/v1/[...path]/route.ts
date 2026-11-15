@@ -8,39 +8,13 @@
  */
 import type { NextRequest } from 'next/server';
 import { API_BASE, controlPlaneToken } from '@/lib/api';
+import { isProxied, type ProxyMethod } from '@/lib/proxy-policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
-
-const GETTABLE: RegExp[] = [
-  /^health$/,
-  /^tasks$/,
-  new RegExp(`^tasks/${ID}$`),
-  // A task's produced files: the deliverable surface. Without these the platform
-  // recorded artifacts the browser could never reach.
-  new RegExp(`^tasks/${ID}/artifacts$`),
-  new RegExp(`^artifacts/${ID}/download$`),
-  new RegExp(`^jobs/${ID}$`),
-  new RegExp(`^jobs/${ID}/events$`),
-  new RegExp(`^jobs/${ID}/stream$`),
-  /^memory\/search$/,
-  /^agents$/,
-  /^approvals$/,
-  /^schedules$/,
-  /^usage$/,
-];
-
-const POSTABLE: RegExp[] = [
-  /^requests$/,
-  /^memory$/,
-  /^schedules$/,
-  new RegExp(`^tasks/${ID}/cancel$`),
-  new RegExp(`^approvals/${ID}/decide$`),
-];
-
-const DELETABLE: RegExp[] = [new RegExp(`^schedules/${ID}$`)];
+// The allow-list lives in lib/proxy-policy.ts so it can be tested directly; it is
+// a security boundary, not routing detail.
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -51,8 +25,7 @@ function json(body: unknown, status: number): Response {
 
 async function forward(req: NextRequest, segments: string[], method: 'GET' | 'POST' | 'DELETE'): Promise<Response> {
   const key = segments.join('/');
-  const table = method === 'GET' ? GETTABLE : method === 'POST' ? POSTABLE : DELETABLE;
-  if (!table.some((re) => re.test(key))) {
+  if (!isProxied(method as ProxyMethod, segments)) {
     return json({ error: 'endpoint_not_proxied', path: `/v1/${key}` }, 404);
   }
   const token = controlPlaneToken();
