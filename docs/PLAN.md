@@ -1380,3 +1380,34 @@ an extra column would be ignored, and a field the UI does not read is not requir
 Also honest: the four new schemas are validated against live responses but do **not**
 yet have unit tests of their own (the task schemas do). That is a gap, not a
 completeness claim.
+
+---
+
+## 37. Round 28 — the four new wire schemas now have their own tests
+
+Last round I stated plainly that the agent/approval/schedule/memory schemas were
+validated against live responses but had no unit tests. Closing that.
+
+10 tests, built from **captured real rows** rather than invented fixtures, and each
+schema is exercised in both directions:
+
+| Schema | Accepts | Rejects |
+|---|---|---|
+| Agent | real agent row | missing `display_name`; `enabled: "yes"` |
+| Approval | real row with nullable decision fields; `job_id: null` (how a held request looks) | missing `summary`; `action: "nope"` |
+| Schedule | real row; `next_run_at: null` before the first run | missing `rrule` |
+| Memory | real result; `title: null` | missing `excerpt`; wrong envelope key (`rows`) |
+
+The envelope tests matter as much as the field tests: `{rows:[…]}` failing where
+`{results:[…]}` passes is the difference between a rename being caught and a panel
+silently showing nothing.
+
+Core suite: **87 tests**. Running total **243** (core 87, dsh-adapter 14, learning
+24, db 6, web 38, bot 74). Verified on both the laptop and the deployed host.
+
+### Remaining known gaps
+Response validation covers seven read endpoints; `jobs`, `usage`, `voice/*` and the
+learnings endpoints still return unvalidated rows. The prose-gate coverage is unknown
+by construction. The tool boundary reacts rather than pre-empts. `packages/ui` has no
+tests. The local MCP guard is a manual process. Restore has never been tried on a
+different host.
