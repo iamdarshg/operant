@@ -1,0 +1,35 @@
+{
+  "name": "@operant/web-search-ddg",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Anonymous DuckDuckGo search provider for the DeepSeek Harness web seam (ctx.web) — no API key",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./parse": {
+      "types": "./dist/parse.d.ts",
+      "default": "./dist/parse.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check:parser": "node test/check-parser.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-web": "0.2.2-rc.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-web": {
+      "optional": true
+    }
+  }
+}

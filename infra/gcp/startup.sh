@@ -55,6 +55,11 @@ install -d -o root -g operant -m 0750 /etc/operant
 ufw --force reset >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
+# CRITICAL: without this rule, `ufw enable` drops the IAP tunnel on :22 and
+# locks every operator out of the box (this happened on first boot). The GCP
+# firewall permits tcp:22 only from IAP's 35.235.240.0/20; the guest firewall
+# must agree, scoped to the same range rather than opened to the world.
+ufw allow from 35.235.240.0/20 to any port 22 proto tcp comment 'ssh via IAP' >/dev/null
 ufw allow 41641/udp comment 'tailscale direct' >/dev/null || true
 ufw --force enable >/dev/null
 systemctl enable --now fail2ban
