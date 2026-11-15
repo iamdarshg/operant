@@ -44,8 +44,8 @@ const PORT = Number(process.env['OPERANT_API_PORT'] ?? 8787);
 const HOST = process.env['OPERANT_API_HOST'] ?? '127.0.0.1';
 const TOKEN = process.env['OPERANT_BOT_TOKEN'] ?? '';
 const DB_URL = process.env['DATABASE_URL'] ?? '';
-const WORKSPACE_ROOT = process.env['DSH_WORKSPACE_ROOT'] ?? join(process.cwd(), 'data', 'jobs');
-const DSH_PROFILE = process.env['DSH_PROFILE'] ?? 'operant';
+const WORKSPACE_ROOT = process.env['OPERANT_WORKSPACE_ROOT'] ?? join(process.cwd(), 'data', 'jobs');
+const DSH_PROFILE = process.env['OPERANT_DSH_PROFILE'] ?? 'operant';
 
 if (!TOKEN || TOKEN.length < 16) {
   console.error(

@@ -1,0 +1,86 @@
+# Operant execution profile — the DSH configuration every agent job runs under.
+#
+# Versioned here so a fresh clone reproduces the exact agent environment. It is
+# additive: the shipped `web`, `headless` and `tui` profiles are untouched.
+#
+# Why a custom profile at all: the shipped `headless` profile routes to
+# `deepseek-official` and needs DEEPSEEK_API_KEY. On this machine the working
+# route is the Surplus gateway (llm-pi-ai), so jobs would otherwise die with
+# MISSING_CREDENTIAL before doing any work (verified).
+#
+# Installed to ~/.dsh/profiles/operant by the Dockerfile.
+
+# Headless disables the local credentials service, so apiKeyEnv references from
+# ~/.dsh/.credentials.yaml could not resolve. Re-enable it (read-only effect).
+- id: credentials
+  disabled: false
+
+- id: llm-pi-ai
+  config:
+    providers:
+      surplus:
+        apiKeyEnv: SURPLUS_API_KEY
+        displayName: Surplus Intelligence
+        api: openai-completions
+        baseURL: https://api.surplusintelligence.ai/v1
+        compat:
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          # The declaration must list the reasoning efforts the model supports,
+          # or the runtime rejects reasoningEffort "high" with
+          # UNSUPPORTED_REASONING_EFFORT (verified).
+          - id: deepseek-v4.1-flash-1017
+            name: DeepSeek V4.1 Flash 1017 (Surplus)
+            contextWindow: 1000000
+            maxTokens: 393216
+            input:
+              - text
+              - image
+            compat:
+              thinkingFormat: deepseek
+            reasoningEfforts:
+              'off': null
+              low: low
+              medium: medium
+              high: high
+
+- id: agent-default-model
+  config:
+    provider: surplus
+    model: deepseek-v4.1-flash-1017
+    reasoningEffort: high
+
+# Web search: pin exactly ONE provider. With both shipped DeepSeek providers
+# mounted and no pin, every web_search fails with "multiple usable web
+# providers are registered". Both of those need DEEPSEEK_API_KEY, so the pinned
+# provider is the local keyless DuckDuckGo one.
+- id: web
+  config:
+    searchProvider: duckduckgo
+    fetchProvider: http
+
+- insert:
+    - id: web-search-ddg
+      name: '@operant/web-search-ddg'
+
+# VoiceStudio speech service over MCP (streamable HTTP). Address is configurable
+# so the same profile works when the service runs in another container
+# (compose sets VOICESTUDIO_MCP_URL=http://voicestudio:3900/mcp/).
+# failOnStartupError:false is deliberate: a speech-service outage must degrade
+# the available tools, never stop DSH from booting.
+- insert:
+    - id: mcp-voicestudio
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: voicestudio
+        transport: streamable-http
+        url: !!js process.env.VOICESTUDIO_MCP_URL ?? 'http://127.0.0.1:3900/mcp/'
+        headers: {}
+        toolCallTimeoutMs: 180000
+        failOnStartupError: false
+        reconnect:
+          enabled: true
+          maxAttempts: 5
+          initialDelayMs: 500
+          maxDelayMs: 30000

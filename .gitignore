@@ -6,11 +6,11 @@ dist/
 .env
 .env.*
 !.env.example
+secrets/
 data/
 artifacts/
 coverage/
-playwright-report/
 test-results/
+playwright-report/
 *.tsbuildinfo
 .DS_Store
-/secrets/

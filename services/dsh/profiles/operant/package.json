@@ -1,0 +1,16 @@
+{
+  "name": "dsh-profile-operant",
+  "private": true,
+  "dependencies": {
+    "@operant/web-search-ddg": "link:/app/packages/web-search-ddg"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-headless"
+      ]
+    }
+  },
+  "packageManager": "pnpm@11.19.0"
+}

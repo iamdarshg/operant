@@ -23,12 +23,21 @@ hdr "2. readiness: GET /health"
 curl -sS -m 10 -w '\nhttp=%{http_code} time=%{time_total}s\n' "$BASE/health"
 
 hdr "3. OpenAI-compatible: GET /v1/models (STT/TTS ids)"
-curl -sS -m 30 "$BASE/v1/models" |
-  python3 -c 'import sys,json; d=json.load(sys.stdin); [print(f"  {m[\"id\"]:<24} kind={m[\"voicestudio\"][\"kind\"]:<4} active_engine={m[\"voicestudio\"][\"alias_for_active_engine\"]}") for m in d["data"]]'
+curl -sS -m 30 "$BASE/v1/models" | python3 -c '
+import sys, json
+for m in json.load(sys.stdin)["data"]:
+    v = m["voicestudio"]
+    print("  %-24s kind=%-3s active_engine=%s" % (m["id"], v["kind"], v["alias_for_active_engine"]))
+'
 
 hdr "4. OpenAI-compatible: GET /v1/audio/voices (count + first ids)"
-curl -sS -m 30 "$BASE/v1/audio/voices" |
-  python3 -c 'import sys,json; d=json.load(sys.stdin); v=d["voices"]; print(f"  {len(v)} voices"); [print(f"  {x[\"voice_id\"]:<10} {x[\"type\"]}") for x in v[:6]]'
+curl -sS -m 30 "$BASE/v1/audio/voices" | python3 -c '
+import sys, json
+voices = json.load(sys.stdin)["voices"]
+print("  %d voices" % len(voices))
+for v in voices[:6]:
+    print("  %-10s %s" % (v["voice_id"], v["type"]))
+'
 
 hdr "5. OpenAI-compatible transcription: POST /v1/audio/transcriptions"
 if [[ -f "$AUDIO" ]]; then

@@ -1,0 +1,51 @@
+{
+  "label": "medium",
+  "model_id": "Systran/faster-whisper-medium",
+  "audio": "/opt/operant/voicestudio/bench/known-sentence.wav",
+  "audio_format": {
+    "channels": 1,
+    "sample_rate": 8000,
+    "bits": 16
+  },
+  "audio_duration_s": 7.16,
+  "started_at_utc": "2026-11-15T13:02:07Z",
+  "boot": {
+    "recreate_cmd": "docker compose up -d (ASR_MODEL_FASTER=Systran/faster-whisper-medium)",
+    "compose_up_to_healthy_s": 9.13,
+    "health_probe_healthy_s": 7.2
+  },
+  "container_id": "bf8687a9b5e7d80710ca9d4a7d5a88dc2d6eb37ae8d66f9798c3b4ee3fbb3bc0",
+  "peak_rss_bytes_cgroup_memory_peak": 2266091520,
+  "cold_request_s": 10.25,
+  "cold_text": "The server hums quietly beside the cooling fan, while the operator checks the morning logs.",
+  "warm_request_s": [
+    5.174,
+    4.941,
+    4.868
+  ],
+  "warm_median_s": 4.941,
+  "warm_min_s": 4.868,
+  "rtf": 0.6901,
+  "rtf_cold": 1.4316,
+  "peak_rss_mib": 2161.1,
+  "oom_killed": false,
+  "transcript_text": "The server hums quietly beside the cooling fan while the operator checks the morning logs.",
+  "transcripts": [
+    "The server hums quietly beside the cooling fan while the operator checks the morning logs.",
+    "The server hums quietly beside the cooling fan while the operator checks the morning logs.",
+    "The server hums quietly beside the cooling fan while the operator checks the morning logs."
+  ],
+  "wer": {
+    "reference": "The server hums quietly beside the cooling fan while the operator checks the morning logs.",
+    "hypothesis": "The server hums quietly beside the cooling fan while the operator checks the morning logs.",
+    "rate": 0.0,
+    "edits": 0,
+    "ref_words": 15,
+    "hyp_words": 15
+  },
+  "engine_active": {
+    "active": "faster-whisper",
+    "active_model": "Systran/faster-whisper-medium",
+    "env_override": true
+  }
+}

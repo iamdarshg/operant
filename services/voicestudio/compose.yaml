@@ -33,12 +33,14 @@ services:
       # MCP's SDK rejects Host headers it does not consider local. Comma
       # separated; add the Tailscale MagicDNS name when the tailnet is up.
       OMNIVOICE_MCP_ALLOWED_HOSTS: "${OMNIVOICE_MCP_ALLOWED_HOSTS:-localhost,127.0.0.1,operant-core}"
+      OMNIVOICE_MCP_BASE_PATH: "${OMNIVOICE_MCP_BASE_PATH:-/data/mcp-audio}"
       HF_HOME: /app/omnivoice_data/huggingface
       # Keep BLAS/OpenMP from oversubscribing 8 vCPUs with concurrent requests.
       OMP_NUM_THREADS: "${OMP_NUM_THREADS:-4}"
       MKL_NUM_THREADS: "${MKL_NUM_THREADS:-4}"
     volumes:
       - voicestudio_data:/app/omnivoice_data
+      - /opt/operant/voicestudio/bench:/data/mcp-audio:ro
     mem_limit: 16g
     memswap_limit: 16g
     shm_size: 1g

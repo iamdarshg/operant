@@ -1,0 +1,124 @@
+# Operant — the whole platform, one command.
+#
+#   cp .env.example .env      # then fill the two credentials
+#   docker compose up -d --build
+#
+# Portability rules obeyed here:
+#   * no host absolute paths except the credentials file, which is inherently
+#     host-specific and is referenced through DSH_CREDENTIALS_FILE
+#   * every secret comes from .env, never from this file
+#   * the speech service is opt-in via the `voice` profile, so the core platform
+#     runs on a machine without it (`docker compose up -d` alone)
+#   * API and speech bind to 127.0.0.1 only; nothing is published publicly
+
+name: operant
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: operant/app:local
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    # Container-internal addresses override whatever the host .env says.
+    DATABASE_URL: postgres://operant@postgres:5432/operant
+    OPERANT_API_HOST: 0.0.0.0
+    OPERANT_WORKSPACE_ROOT: /app/data/jobs
+    OPERANT_DSH_PROFILE: operant
+    VOICESTUDIO_MCP_URL: http://voicestudio:3900/mcp/
+  volumes:
+    - jobs:/app/data/jobs
+    # Credentials for the model route. Read-only: the agent runtime must never
+    # be able to rewrite them.
+    - ${DSH_CREDENTIALS_FILE:-./secrets/.credentials.yaml}:/home/operant/.dsh/.credentials.yaml:ro
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: operant
+      POSTGRES_DB: operant
+      # Scoped to the compose network only; the port is not published at all.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied in lexical order on first boot of an empty volume.
+      - ./packages/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U operant -d operant"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *app
+    command: ["node", "apps/api/dist/server.js"]
+    ports:
+      - "127.0.0.1:8787:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8787/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: ["node", "apps/worker/dist/main.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    # Agent runs are model-API bound, not CPU bound. Keep headroom for the
+    # speech service and for builds on an 8 vCPU box.
+    environment:
+      DATABASE_URL: postgres://operant@postgres:5432/operant
+      OPERANT_WORKSPACE_ROOT: /app/data/jobs
+      OPERANT_DSH_PROFILE: operant
+      VOICESTUDIO_MCP_URL: http://voicestudio:3900/mcp/
+      WORKER_CONCURRENCY: "2"
+      JOB_TIMEOUT_MS: "900000"
+
+  # Opt-in: `docker compose --profile voice up -d`
+  voicestudio:
+    profiles: ["voice"]
+    image: ghcr.io/debpalash/voicestudio:0.5.8@sha256:9cfc492a350ea34ad65ac991cf3b9e0030e3318d684c26435a6a44b074871f0d
+    restart: unless-stopped
+    ports:
+      # Loopback only. The MCP transport is unauthenticated by design, so it is
+      # never reachable from outside this host.
+      - "127.0.0.1:3900:3900"
+    environment:
+      OMNIVOICE_SERVER_MODE: "1"
+      # CPU-first ASR. WhisperX/large-v3 is far too slow on 8 vCPUs; small
+      # measured 0.258 RTF at 0% WER on the bench clip vs medium 0.690.
+      OMNIVOICE_ASR_BACKEND: "${OMNIVOICE_ASR_BACKEND:-faster-whisper}"
+      ASR_MODEL_FASTER: "${ASR_MODEL_FASTER:-Systran/faster-whisper-small}"
+      # The MCP SDK rejects Host headers it does not consider local: without
+      # this, container-to-container calls fail with 403.
+      OMNIVOICE_MCP_ALLOWED_HOSTS: "${OMNIVOICE_MCP_ALLOWED_HOSTS:-localhost,127.0.0.1,voicestudio,operant-core}"
+      OMNIVOICE_MCP_BASE_PATH: /data/mcp-audio
+      HF_HOME: /app/omnivoice_data/huggingface
+    volumes:
+      - voicestudio_data:/app/omnivoice_data
+      - ./data/audio:/data/mcp-audio
+    mem_limit: 16g
+    shm_size: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3900/health', timeout=5).status==200 else 1)\""]
+      interval: 20s
+      timeout: 8s
+      retries: 10
+      start_period: 90s
+
+volumes:
+  pgdata:
+  voicestudio_data:
+  jobs:

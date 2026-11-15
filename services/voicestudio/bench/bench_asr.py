@@ -233,13 +233,18 @@ def main() -> int:
             "hyp_words": n_hyp,
         }
 
-    # Which backend/model the service actually reports as active.
+    # Which backend/model the service actually reports as active. Kept compact
+    # so the JSON stays a readable result file rather than a dump of the
+    # per-engine capability tree.
     try:
         with urllib.request.urlopen(f"{BASE}/engines/asr", timeout=30) as r:
             engines = json.loads(r.read())
-        out["engines_asr"] = engines if isinstance(engines, (dict, list)) else None
+        out["engine_active"] = {
+            k: engines.get(k)
+            for k in ("active", "active_model", "env_override")
+        }
     except Exception as exc:  # noqa: BLE001
-        out["engines_asr"] = f"unavailable: {exc}"
+        out["engine_active"] = f"unavailable: {exc}"
 
     out_path = BENCH_DIR / f"asr-{args.label}.json"
     out_path.write_text(json.dumps(out, indent=2) + "\n")
