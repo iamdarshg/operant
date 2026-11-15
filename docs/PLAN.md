@@ -703,3 +703,31 @@ remains.
 
 Also verified in the same pass: the dashboard builds and runs on **next 15.5.28**
 (the advisory fix), and the proxy still serves live data through it.
+
+---
+
+## 20. Round 11 — artifacts became real, and the deliverable index exists
+
+### `artifacts` was a third dead table
+Migration 0001 created `artifacts` with a zod schema and a `job.artifact` event
+type, and **nothing ever wrote a row** — the same shape of gap the scheduler had.
+Now the worker collects what a job produced (workspace-confined, depth ≤ 6,
+25 MB/file cap, 50 files, skipping `node_modules`/`.git`/`dist`), records
+filename/mime/bytes/**sha256**, and the API serves it with `x-content-sha256` and
+path confinement against the workspace root.
+
+Verified: agent wrote `report.md` → 1 artifact row → download returned 28 bytes
+`hello from the artifact test` → served hash `bb5fd045…58ee` **equals** the hash of
+the bytes on disk.
+
+### `docs/reports/deployment-report.md`
+A single honest index: each requested deliverable, its status, and the command
+output or screenshot that proves it — including a nine-item "what is NOT done"
+section so the report cannot be mistaken for a victory lap. Three listed gaps are
+operator decisions rather than engineering debt (Discord token, VoiceStudio
+licence, git-history rewrite).
+
+### Test totals verified this round
+`pnpm -r run test`: core **55**, dsh-adapter **14**, learning **24** = **93**
+passing. The bot (74) and web suites were last green earlier and were not re-run in
+this pass; the deployment report says so rather than implying otherwise.

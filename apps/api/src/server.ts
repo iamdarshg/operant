@@ -16,8 +16,8 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import {
   CreateRequestInput,
@@ -40,6 +40,8 @@ import {
   getJobsForTask,
   getTask,
   insertMemory,
+  getArtifact,
+  listArtifacts,
   listSchedules,
   listTasks,
   recordHealth,
@@ -593,6 +595,38 @@ app.post('/v1/voice/transcribe', async (req, reply) => {
   }
 });
 
+/* ------------------------------------------------------------------ artifacts */
+
+app.get('/v1/tasks/:id/artifacts', async (req) => {
+  const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+  return { artifacts: await listArtifacts(db, id) };
+});
+
+app.get('/v1/artifacts/:id/download', async (req, reply) => {
+  const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+  const artifact = await getArtifact(db, id);
+  if (!artifact) return reply.code(404).send({ error: 'not_found' });
+
+  // Confinement: serve only paths inside the configured workspace root, even
+  // though the path came from our own database. A stored path is data, not trust.
+  const root = resolve(process.env['OPERANT_WORKSPACE_ROOT'] ?? './data/jobs');
+  const resolved = resolve(artifact.path);
+  if (resolved !== root && !resolved.startsWith(root + sep)) {
+    req.log.warn({ artifactId: id, path: artifact.path }, 'artifact path escapes the workspace root');
+    return reply.code(403).send({ error: 'outside_workspace' });
+  }
+
+  const bytes = await readFile(resolved).catch(() => null);
+  if (!bytes) return reply.code(404).send({ error: 'file_missing' });
+
+  const safeName = artifact.filename.replace(/["\\\r\n]/g, '');
+  return reply
+    .header('content-type', artifact.mime_type)
+    .header('content-disposition', `attachment; filename="${safeName}"`)
+    .header('x-content-sha256', artifact.sha256)
+    .send(bytes);
+});
+
 /* ------------------------------------------------------------------ schedules */
 
 app.get('/v1/schedules', async () => ({ schedules: await listSchedules(db) }));
@@ -721,3 +755,5 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 
 await app.listen({ port: PORT, host: HOST });
 app.log.info({ port: PORT, host: HOST, profile: DSH_PROFILE }, 'operant api listening');
+
+

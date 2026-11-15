@@ -702,3 +702,59 @@ export async function deleteSchedule(db: Db, id: string): Promise<boolean> {
   const rows = await db`DELETE FROM schedules WHERE id = ${id} RETURNING id`;
   return rows.length > 0;
 }
+
+/* ------------------------------------------------------------------ *
+ * Artifacts
+ * ------------------------------------------------------------------ */
+
+export interface ArtifactRow {
+  id: string;
+  job_id: string;
+  task_id: string;
+  path: string;
+  filename: string;
+  mime_type: string;
+  bytes: string | number;
+  sha256: string;
+  remote_url: string | null;
+  created_at: Date;
+}
+
+/**
+ * Record files a job produced.
+ *
+ * The `artifacts` table existed from migration 0001 with a zod schema and a
+ * `job.artifact` event type, and nothing ever wrote a row — the deliverable was a
+ * promise with no producer. Deduplicated on (job_id, sha256) so a retried job does
+ * not multiply identical rows.
+ */
+export async function recordArtifacts(
+  db: Db,
+  taskId: string,
+  jobId: string,
+  files: { path: string; filename: string; mimeType: string; bytes: number; sha256: string }[],
+): Promise<number> {
+  if (files.length === 0) return 0;
+  let inserted = 0;
+  for (const f of files) {
+    const rows = await db`
+      INSERT INTO artifacts (job_id, task_id, path, filename, mime_type, bytes, sha256)
+      SELECT ${jobId}, ${taskId}, ${f.path}, ${f.filename}, ${f.mimeType}, ${f.bytes}, ${f.sha256}
+       WHERE NOT EXISTS (
+         SELECT 1 FROM artifacts WHERE job_id = ${jobId} AND sha256 = ${f.sha256}
+       )
+      RETURNING id`;
+    inserted += rows.length;
+  }
+  return inserted;
+}
+
+export async function listArtifacts(db: Db, taskId: string): Promise<ArtifactRow[]> {
+  return db<ArtifactRow[]>`
+    SELECT * FROM artifacts WHERE task_id = ${taskId} ORDER BY created_at`;
+}
+
+export async function getArtifact(db: Db, id: string): Promise<ArtifactRow | null> {
+  const [row] = await db<ArtifactRow[]>`SELECT * FROM artifacts WHERE id = ${id}`;
+  return row ?? null;
+}

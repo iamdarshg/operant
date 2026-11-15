@@ -17,8 +17,9 @@
  */
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { mkdir } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { mkdir, readdir, readFile, stat } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { runDshJob, type NormalizedEvent } from '@operant/dsh-adapter';
 import { assessToolCall, nextRunAt, describeRule } from '@operant/core';
 import {
@@ -33,6 +34,7 @@ import {
   insertMemory,
   markJobDispatched,
   markScheduleRan,
+  recordArtifacts,
   recordUsage,
   renewLease,
   type JobRow,
@@ -243,6 +245,14 @@ async function executeJob(job: JobRow): Promise<void> {
       sessionId: result.sessionId,
     });
 
+    // Record what the job actually produced, so a deliverable can be found later
+    // instead of being buried in a workspace nobody knows the path to.
+    const produced = await collectArtifacts(job.workspace_path).catch(() => []);
+    if (produced.length > 0) {
+      const recorded = await recordArtifacts(db, job.task_id, job.id, produced).catch(() => 0);
+      log('artifacts recorded', { jobId: job.id, found: produced.length, inserted: recorded });
+    }
+
     // `requireVerification` used to be stored and never read — a checkbox that
     // lied. When the operator asked for independent verification, enqueue a
     // review job now and record it as the verifier of this job.
@@ -400,6 +410,73 @@ async function schedulerTick(): Promise<void> {
   }
 }
 
+/**
+ * Collect the files a job left behind.
+ *
+ * Walks the job's own workspace only (the one path the worker created), skips
+ * dependency/vendor directories and anything large enough to be a build artifact
+ * rather than a deliverable. The sha256 is what makes the record verifiable: a
+ * reported artifact can be checked against the bytes on disk.
+ */
+async function collectArtifacts(workspacePath: string): Promise<
+  { path: string; filename: string; mimeType: string; bytes: number; sha256: string }[]
+> {
+  const out: { path: string; filename: string; mimeType: string; bytes: number; sha256: string }[] = [];
+  const SKIP = new Set(['node_modules', '.git', '.next', 'dist', '__pycache__', '.venv']);
+  const MAX_BYTES = 25 * 1024 * 1024;
+  const MAX_FILES = 50;
+
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 6 || out.length >= MAX_FILES) return;
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= MAX_FILES) return;
+      if (SKIP.has(entry.name)) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      try {
+        const info = await stat(full);
+        if (info.size === 0 || info.size > MAX_BYTES) continue;
+        const bytes = await readFile(full);
+        out.push({
+          path: full,
+          filename: entry.name,
+          mimeType: mimeFor(entry.name),
+          bytes: info.size,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        });
+      } catch {
+        // A file that vanished mid-scan is not an error worth failing the job for.
+      }
+    }
+  };
+
+  await walk(workspacePath, 0);
+  return out;
+}
+
+/** Minimal, honest extension→type map; unknown types are application/octet-stream. */
+function mimeFor(name: string): string {
+  const ext = name.toLowerCase().split('.').pop() ?? '';
+  const map: Record<string, string> = {
+    txt: 'text/plain', md: 'text/markdown', json: 'application/json', csv: 'text/csv',
+    html: 'text/html', css: 'text/css', js: 'text/javascript', ts: 'text/plain',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+    svg: 'image/svg+xml', webp: 'image/webp', pdf: 'application/pdf',
+    zip: 'application/zip', wav: 'audio/wav', mp3: 'audio/mpeg', log: 'text/plain',
+  };
+  return map[ext] ?? 'application/octet-stream';
+}
+
 async function loop(slot: number): Promise<void> {
   active += 1;
   // A worker must OUTLIVE a briefly unavailable database. Previously a failed
@@ -456,4 +533,5 @@ void schedulerTick().catch((err) => log('scheduler tick failed', { error: String
 setInterval(() => {
   void schedulerTick().catch((err) => log('scheduler tick failed', { error: String(err).slice(0, 300) }));
 }, 60_000);
+
 
