@@ -1336,3 +1336,47 @@ to send.**
 
 Test-harness artifacts from my own probes and the acceptance runs were withdrawn
 from the approval queue with notes, so the operator's queue shows only real items.
+
+---
+
+## 36. Round 27 — response validation on every read surface, and a subtle mistake in where it ran
+
+Extended the wire contract from tasks to **agents, approvals, schedules and memory
+search**, using key lists captured from the running service rather than from the
+type declarations.
+
+Then it broke two endpoints with 500s — and the failure was instructive:
+
+```
+approvals -> expected string, received date   path: ["approvals",0,"created_at"]
+schedules -> expected string, received date   path: ["schedules",0,"last_run_at"]
+```
+
+The schemas were right. The **validation point was wrong**: I parsed the in-memory
+object, where timestamps are still JS `Date`s, while Fastify serializes them to ISO
+strings on the way out. The contract describes what goes **over the wire**, so
+`assertWire` now serializes first and validates the actual payload:
+
+```ts
+const wire = JSON.parse(JSON.stringify(value ?? null));
+```
+
+That is a general trap: validating the object you are about to send is not the same
+as validating what you send, and the difference only shows up for types that change
+during serialization.
+
+### Verified after the fix
+
+```
+/v1/health 200 · /v1/agents 200 · /v1/approvals 200 · /v1/schedules 200
+/v1/memory/search 200 · /v1/tasks 200 · /v1/usage 200
+15 fresh requests issued -> contract violations in the last 20 seconds: 0
+```
+
+Worth being precise about what this proves: the schemas accept the shapes the service
+produces **today**. It does not prove the schemas are complete — `passthrough` means
+an extra column would be ignored, and a field the UI does not read is not required.
+
+Also honest: the four new schemas are validated against live responses but do **not**
+yet have unit tests of their own (the task schemas do). That is a gap, not a
+completeness claim.

@@ -28,6 +28,10 @@ import {
   nextRunAt,
   TaskListWire,
   TaskDetailWire,
+  AgentListWire,
+  ApprovalListWire,
+  ScheduleListWire,
+  MemorySearchWire,
 } from '@operant/core';
 import {
   cancelTask,
@@ -419,6 +423,33 @@ app.get('/v1/jobs/:id/stream', async (req, reply) => {
 
 /* -------------------------------------------------------------------- memory */
 
+/**
+ * Validate a response before it leaves the process.
+ *
+ * Nothing validated responses until recently, which is how the declared types drifted
+ * from the wire format unnoticed. A violation is logged with the offending fields and
+ * returned as 500: a loud failure is better than a shape the UI silently misrenders.
+ */
+function assertWire<T>(
+  schema: { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { issues: unknown[] } } },
+  value: unknown,
+  what: string,
+): T {
+  // Validate the SERIALIZED payload, not the in-memory object. Fastify turns Date
+  // into an ISO string on the way out, so validating before serialization rejected
+  // perfectly good responses ("expected string, received date"). The contract is
+  // about what goes over the wire.
+  const wire = JSON.parse(JSON.stringify(value ?? null));
+  const parsed = schema.safeParse(wire);
+  if (!parsed.success) {
+    throw Object.assign(new Error('response_contract_violation'), {
+      statusCode: 500,
+      contractIssues: { what, issues: parsed.error?.issues?.slice(0, 5) },
+    });
+  }
+  return parsed.data as T;
+}
+
 app.get('/v1/memory/search', async (req) => {
   const parsed = MemorySearchInput.safeParse({
     query: (req.query as Record<string, unknown>)['q'],
@@ -430,17 +461,16 @@ app.get('/v1/memory/search', async (req) => {
     limit: parsed.data.limit,
     projectKey: parsed.data.projectKey,
   });
-  return {
-    results: rows.map((r) => ({
-      id: r.id,
-      kind: r.kind,
-      title: r.title,
-      excerpt: r.body.slice(0, 600),
-      importance: r.importance,
-      matchedBy: r.matched_by,
-      score: r.rank,
-    })),
-  };
+  const results = rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    excerpt: r.body.slice(0, 600),
+    importance: r.importance,
+    matchedBy: r.matched_by,
+    score: r.rank,
+  }));
+  return assertWire(MemorySearchWire, { results }, 'memory search');
 });
 
 app.post('/v1/memory', async (req, reply) => {
@@ -475,14 +505,14 @@ app.post('/v1/memory', async (req, reply) => {
 app.get('/v1/agents', async () => {
   const agents = await db`SELECT id, display_name, role, description, permission_mode, enabled, max_concurrency
                             FROM agents ORDER BY id`;
-  return { agents };
+  return assertWire(AgentListWire, { agents }, 'agents');
 });
 
 /* ----------------------------------------------------------------- approvals */
 
 app.get('/v1/approvals', async () => {
   const approvals = await db`SELECT * FROM approvals WHERE status = 'pending' ORDER BY created_at DESC LIMIT 100`;
-  return { approvals };
+  return assertWire(ApprovalListWire, { approvals }, 'approvals');
 });
 
 app.post('/v1/approvals/:id/decide', async (req, reply) => {
@@ -644,7 +674,7 @@ app.get('/v1/artifacts/:id/download', async (req, reply) => {
 
 /* ------------------------------------------------------------------ schedules */
 
-app.get('/v1/schedules', async () => ({ schedules: await listSchedules(db) }));
+app.get('/v1/schedules', async () => assertWire(ScheduleListWire, { schedules: await listSchedules(db) }, 'schedules'));
 
 app.post('/v1/schedules', async (req, reply) => {
   const parsed = z
@@ -770,6 +800,9 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 
 await app.listen({ port: PORT, host: HOST });
 app.log.info({ port: PORT, host: HOST, profile: DSH_PROFILE }, 'operant api listening');
+
+
+
 
 
 

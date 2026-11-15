@@ -39,3 +39,66 @@ export const TaskDetailWire = z
   .passthrough();
 
 export type TaskWire = z.infer<typeof TaskWire>;
+/* ------------------------------------------------------------------ more surfaces
+ * Key lists captured from the running service, not from the type declarations.
+ * `passthrough` everywhere because the API returns whole database rows; strict only
+ * about the fields the UI renders, so a rename fails at the boundary.
+ * ---------------------------------------------------------------------- */
+
+export const AgentWire = z
+  .object({
+    id: z.string(),
+    display_name: z.string(),
+    role: z.string(),
+    description: z.string().nullable().optional(),
+    permission_mode: z.string(),
+    enabled: z.boolean(),
+    max_concurrency: z.number(),
+  })
+  .passthrough();
+
+export const AgentListWire = z.object({ agents: z.array(AgentWire) }).passthrough();
+
+export const ApprovalWire = z
+  .object({
+    id: z.string().uuid(),
+    task_id: z.string().uuid().nullable(),
+    job_id: z.string().uuid().nullable(),
+    summary: z.string(),
+    action: z.record(z.string(), z.unknown()),
+    risk: z.string(),
+    status: z.string(),
+    requested_by: z.string().nullable().optional(),
+    created_at: z.string(),
+  })
+  .passthrough();
+
+export const ApprovalListWire = z.object({ approvals: z.array(ApprovalWire) }).passthrough();
+
+export const ScheduleWire = z
+  .object({
+    id: z.string().uuid(),
+    title: z.string(),
+    rrule: z.string(),
+    timezone: z.string(),
+    prompt: z.string(),
+    agent_slug: z.string(),
+    enabled: z.boolean(),
+    last_run_at: z.string().nullable(),
+    next_run_at: z.string().nullable(),
+    created_at: z.string(),
+  })
+  .passthrough();
+
+export const ScheduleListWire = z.object({ schedules: z.array(ScheduleWire) }).passthrough();
+
+export const MemoryResultWire = z
+  .object({
+    id: z.string().uuid(),
+    kind: z.string(),
+    title: z.string().nullable(),
+    excerpt: z.string(),
+  })
+  .passthrough();
+
+export const MemorySearchWire = z.object({ results: z.array(MemoryResultWire) }).passthrough();
