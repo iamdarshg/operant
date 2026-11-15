@@ -31,6 +31,7 @@ import {
   renewLease,
   type JobRow,
 } from '@operant/db';
+import { recordIncident } from '@operant/learning';
 
 const DB_URL = process.env['DATABASE_URL'] ?? '';
 const CONCURRENCY = Math.min(Number(process.env['WORKER_CONCURRENCY'] ?? 2), 4);
@@ -223,6 +224,24 @@ async function executeJob(job: JobRow): Promise<void> {
         sourceTaskId: task.id,
         sourceJobId: job.id,
       }).catch(() => {});
+      // Classify + fingerprint the failure so a repeat is detectable. A single
+      // occurrence only records history; the learning tick decides whether a
+      // repeat justifies a change.
+      //
+      // The symptom deliberately includes the runner's stderr: the terse
+      // "turn ended with reason unknown" alone classifies as `unknown`, whereas
+      // the stderr tail usually names the real cause (missing profile, missing
+      // credential, reserved env var). Better classification means a repeat is
+      // routed to the right remedy instead of a generic proposal.
+      const symptom = [
+        reason,
+        result.stderr.trim().length > 0 ? `stderr: ${result.stderr.trim().slice(-1500)}` : '',
+      ]
+        .filter((s) => s.length > 0)
+        .join('\n');
+      await recordIncident(db, symptom, { taskId: task.id, jobId: job.id }).catch((err) => {
+        log('incident record failed', { jobId: job.id, error: String(err) });
+      });
       log('job failed permanently', { jobId: job.id, reason });
     }
   }

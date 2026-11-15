@@ -174,3 +174,63 @@ account auth key is available.
 5. **Services run under `nohup` on the VM**, not systemd/compose yet — the
    compose stack is validated locally but not yet running on the VM.
 6. **`D:\CodeProjects\operant`** remains as an empty, locked directory.
+
+---
+
+## 11. Round 3 — learning loop, test suite, Discord bot, appliance profile
+
+### Verified on the VM (real runs, not claims)
+
+| Thing | Evidence |
+|---|---|
+| Unit tests | **43 tests pass**: core 9, learning 24 (incl. the new classification rule), dsh-adapter 11 |
+| Repeat-failure detection | two identical faults → **1 incident, occurrences=2** (fingerprint dedup works) |
+| Correct classification | after adding a rule for real DSH stderr, the same repeat classifies `config_drift` / "DSH profile missing or not composed" (was `unknown`) |
+| Guardrail holds | a repeat produced a **proposal**, not a silent config change: `{"examined":1,"knowledgeWritten":0,"proposalsCreated":1}` |
+| Conversation continuity | `conversationId=discord:99887766` → tasks row joined to `conversations`, and `GET /v1/tasks?conversationId=` returns it (db row count 1) |
+| Voice API proxy | `GET /v1/voice/health` → healthy; `POST /v1/voice/transcribe` accepts `audioBase64` and forwards; garbage bytes → upstream 422 `invalid_media_file` (correct passthrough, not a 500) |
+| Learning/voice routes live | `/v1/learning/summary` returns real zeros after restart |
+| Discord bot | 7 test files / **74 tests pass**; `--check` proves config + API reachability and exits 1 naming the missing token; its SSE reader parsed a live job stream (9 frames, `job_done succeeded`) |
+
+Test-count note: the earlier claim of "11 tests" for the adapter plus 9 + 24 = 44; the distinct total measured across the three suites is **44** (9 + 24 + 11).
+
+### Duplication removed (anti-entropy)
+
+There were **two** DSH event mappers: `mapDshEvent` in `packages/core` (regex-based,
+unused in production) and `normalize` in `packages/dsh-adapter` (verified against
+real runner output). Two mappers means two behaviours and only one gets tested.
+`mapDshEvent` and its dead `toIso` helper were deleted; the adapter is the single
+owner and now carries the tests.
+
+### Discord bot: what exists, what cannot be proven
+
+Built in `apps/bot`: natural-language routing, conversation continuity keyed on
+`discord:<channel id>`, reply-before-dispatch so a long job never blocks the
+gateway, coalesced message edits (≥1.5 s apart, honouring `retry-after`), voice
+attachment → transcription → treated as the request, approval cards with clicker
+authorization, fail-closed allow-lists, and clean exit when the token is absent.
+
+**Not proven, and not claimed:** gateway login, real message/interaction events,
+real Discord rate limits, CDN downloads, whether `MESSAGE_CONTENT` is enabled on
+the operator's app. All require an operator-supplied bot token.
+
+### Appliance target (operator's next machine)
+
+i7-10700KF (8C/16T) · 32 GB DDR4 · 512 GB SSD · RX 580. Added
+`docker-compose.appliance.yml` (validated with `docker compose config`, merged
+values confirmed) and `infra/appliance/{README.md,preflight.sh}`.
+
+Key hardware judgement: **the RX 580 is deliberately unused.** ROCm dropped
+Polaris (`gfx803`), VoiceStudio ships only CUDA/CPU `amd64` images, and a
+hand-built Vulkan whisper.cpp would be slower than this CPU while destroying
+reproducibility. The CPU path already measured 0.258 RTF at 0 % WER.
+
+Tuning: `WORKER_CONCURRENCY=3` (agent runs are model-API bound), speech capped at
+16 GB, `OMP_NUM_THREADS=4` to stop BLAS oversubscription, Postgres left to the
+page cache, and **log rotation on every service** so a chatty container can never
+repeat the 0-bytes-free incident.
+
+### Operational rule adopted
+
+No single command may block for more than 2 minutes; anything longer runs as a
+background job while other work proceeds.

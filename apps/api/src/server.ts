@@ -24,6 +24,7 @@ import {
   DecideApprovalInput,
   MemorySearchInput,
   TERMINAL_JOB_STATUSES,
+  TranscribeInput,
 } from '@operant/core';
 import {
   cancelTask,
@@ -36,9 +37,16 @@ import {
   insertMemory,
   listTasks,
   recordHealth,
+  recordUsage,
   searchMemories,
   usageSummary,
 } from '@operant/db';
+import {
+  learningSummary,
+  learningTick,
+  promoteImprovement,
+  rollbackImprovement,
+} from '@operant/learning';
 
 const PORT = Number(process.env['OPERANT_API_PORT'] ?? 8787);
 const HOST = process.env['OPERANT_API_HOST'] ?? '127.0.0.1';
@@ -115,6 +123,19 @@ app.post('/v1/requests', async (req, reply) => {
   const workspacePath = join(WORKSPACE_ROOT, taskId);
   await mkdir(workspacePath, { recursive: true });
 
+  // Conversation continuity: an external reference (Discord channel/thread id)
+  // is upserted so follow-up messages attach to the same conversation without
+  // the caller having to know our internal ids.
+  let conversationUuid: string | null = null;
+  if (input.conversationId) {
+    const [conv] = await db<{ id: string }[]>`
+      INSERT INTO conversations (external_ref, channel)
+      VALUES (${input.conversationId}, ${input.origin})
+      ON CONFLICT (external_ref) DO UPDATE SET updated_at = now()
+      RETURNING id`;
+    conversationUuid = conv?.id ?? null;
+  }
+
   const { task, job } = await createTaskWithJob(
     db,
     {
@@ -124,6 +145,7 @@ app.post('/v1/requests', async (req, reply) => {
       origin: input.origin,
       projectPath: input.projectPath ?? null,
       requireVerification: input.requireVerification ?? false,
+      conversationId: conversationUuid,
     },
     {
       kind: 'execute',
@@ -150,7 +172,24 @@ app.post('/v1/requests', async (req, reply) => {
 /* --------------------------------------------------------------------- tasks */
 
 app.get('/v1/tasks', async (req) => {
-  const q = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50), status: z.string().optional() }).parse(req.query);
+  const q = z
+    .object({
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      status: z.string().optional(),
+      conversationId: z.string().optional(),
+    })
+    .parse(req.query);
+
+  if (q.conversationId) {
+    // Resolve the caller's external reference, never expose our internal ids as
+    // the identity a client must remember.
+    const tasks = await db`
+      SELECT t.* FROM tasks t
+        JOIN conversations c ON c.id = t.conversation_id
+       WHERE c.external_ref = ${q.conversationId}
+       ORDER BY t.created_at DESC LIMIT ${q.limit}`;
+    return { tasks };
+  }
   return { tasks: await listTasks(db, q.limit, q.status) };
 });
 
@@ -331,6 +370,137 @@ app.post('/v1/approvals/:id/decide', async (req, reply) => {
 /* --------------------------------------------------------------------- usage */
 
 app.get('/v1/usage', async () => ({ usage: await usageSummary(db) }));
+
+/* --------------------------------------------------------------- voice (proxy)
+ *
+ * Speech is proxied through the control plane rather than called from the bot
+ * or the browser directly. Two reasons: the service listens on the VM's
+ * loopback only, and keeping the only client server-side means the speech
+ * endpoint never needs to be reachable from a client device.
+ *
+ * Failures are passed through verbatim. A licence error from VoiceStudio is
+ * actionable information ("accept this licence") and must not be flattened into
+ * a generic 500.
+ */
+const VOICE_BASE = process.env['VOICESTUDIO_BASE_URL'] ?? 'http://127.0.0.1:3900';
+
+app.get('/v1/voice/health', async (_req, reply) => {
+  try {
+    const r = await fetch(`${VOICE_BASE}/health`, { signal: AbortSignal.timeout(8000) });
+    const body = await r.text();
+    return reply.code(r.ok ? 200 : 502).send({ state: r.ok ? 'healthy' : 'degraded', detail: body });
+  } catch (err) {
+    return reply.code(503).send({ state: 'unreachable', detail: String(err) });
+  }
+});
+
+app.get('/v1/voice/voices', async (_req, reply) => {
+  try {
+    const r = await fetch(`${VOICE_BASE}/v1/audio/voices`, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return reply.code(502).send({ error: 'voice_service_error', status: r.status, detail: await r.text() });
+    return r.json();
+  } catch (err) {
+    return reply.code(503).send({ error: 'voice_service_unreachable', detail: String(err) });
+  }
+});
+
+app.post('/v1/voice/transcribe', async (req, reply) => {
+  // Accept BOTH `audioBase64` (what the documented contract and the bot use)
+  // and `ref` (the shared TranscribeInput field). Accepting both removes a
+  // real skew that already caused one client to send two keys defensively.
+  const Body = z.object({
+    audioBase64: z.string().min(1).optional(),
+    ref: z.string().min(1).optional(),
+    language: z.string().optional(),
+    profile: z.enum(['fast', 'accurate']).optional(),
+  });
+  const parsed = Body.safeParse(req.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'invalid_transcribe_input', issues: parsed.error.issues });
+  const payload = parsed.data.audioBase64 ?? parsed.data.ref;
+  if (!payload) return reply.code(400).send({ error: 'missing_audio', detail: 'send audioBase64 (or ref) as a base64 string' });
+
+  const bytes = Buffer.from(payload, 'base64');
+  if (bytes.length === 0) return reply.code(400).send({ error: 'empty_audio' });
+  if (bytes.length > 25 * 1024 * 1024) {
+    return reply.code(413).send({ error: 'audio_too_large', bytes: bytes.length, limit: 25 * 1024 * 1024 });
+  }
+
+  const t0 = Date.now();
+  try {
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: 'application/octet-stream' }), 'input.wav');
+    const r = await fetch(`${VOICE_BASE}/v1/audio/transcriptions`, {
+      method: 'POST',
+      body: form,
+      ...(parsed.data.language ? { headers: { 'x-language': parsed.data.language } } : {}),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const raw = await r.text();
+    if (!r.ok) {
+      req.log.warn({ status: r.status }, 'voice transcription failed');
+      return reply.code(502).send({ error: 'transcription_failed', status: r.status, detail: raw.slice(0, 1200) });
+    }
+    let upstream: Record<string, unknown>;
+    try {
+      upstream = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return reply.code(502).send({ error: 'unparseable_transcription', detail: raw.slice(0, 600) });
+    }
+    const elapsed = (Date.now() - t0) / 1000;
+    const duration = Number(upstream['duration'] ?? upstream['duration_s'] ?? 0);
+    await recordUsage(db, {
+      kind: 'speech',
+      provider: 'voicestudio',
+      model: String(upstream['engine'] ?? 'faster-whisper'),
+      units: duration,
+    }).catch(() => {});
+    return {
+      text: String(upstream['text'] ?? ''),
+      language: (upstream['language'] as string | undefined) ?? null,
+      durationSec: duration,
+      model: String(upstream['engine'] ?? 'faster-whisper'),
+      // Real-time factor computed from the measured wall clock, not claimed.
+      rtf: duration > 0 ? Number((elapsed / duration).toFixed(3)) : null,
+    };
+  } catch (err) {
+    return reply.code(503).send({ error: 'voice_service_unreachable', detail: String(err) });
+  }
+});
+
+/* ------------------------------------------------------------------ learning */
+
+app.get('/v1/learning/summary', async () => ({ summary: await learningSummary(db) }));
+
+app.get('/v1/learning/incidents', async () => {
+  const incidents = await db`SELECT * FROM incidents ORDER BY last_seen_at DESC LIMIT 100`;
+  return { incidents };
+});
+
+app.get('/v1/learning/improvements', async () => {
+  const improvements = await db`SELECT * FROM improvements ORDER BY created_at DESC LIMIT 100`;
+  return { improvements };
+});
+
+/** Run one pass of the loop now (the scheduler will call the same function). */
+app.post('/v1/learning/tick', async (req) => {
+  const result = await learningTick(db);
+  req.log.info(result, 'learning tick');
+  return result;
+});
+
+app.post('/v1/learning/improvements/:id/promote', async (req, reply) => {
+  const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+  const { reviewer } = z.object({ reviewer: z.string().min(1).default('api') }).parse(req.body ?? {});
+  const result = await promoteImprovement(db, id, reviewer);
+  return result.ok ? { promoted: true } : reply.code(409).send(result);
+});
+
+app.post('/v1/learning/improvements/:id/rollback', async (req, reply) => {
+  const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+  const { actor } = z.object({ actor: z.string().min(1).default('api') }).parse(req.body ?? {});
+  const result = await rollbackImprovement(db, id, actor);
+  return result.ok ? { rolledBack: true } : reply.code(409).send(result);
+});
 
 /* -------------------------------------------------------------------- helpers */
 

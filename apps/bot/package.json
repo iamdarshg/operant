@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "operant-bot": "./dist/index.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,7 +17,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "check": "node dist/index.js --check"
   },
   "dependencies": {
     "undici": "7.2.0",
@@ -24,6 +30,8 @@
   },
   "devDependencies": {
     "tsx": "4.19.2",
+    "vitest": "2.1.8",
+    "typescript": "5.7.2",
     "@types/node": "22.10.2"
   }
 }

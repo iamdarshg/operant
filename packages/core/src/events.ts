@@ -161,119 +161,14 @@ export function preview(text: string, max = 800): string {
  * Mapper
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * Mapper
+ * ------------------------------------------------------------------ */
+
 /**
- * Map one raw DSH event to zero or more normalized events.
- *
- * Returning an empty array is a legitimate outcome (heartbeats, telemetry).
- * Unknown shapes map to a `job.log` carrying the raw payload, which keeps the
- * trail complete without inventing semantics.
+ * DSH event mapping lives in `@operant/dsh-adapter` (`normalize`), which is
+ * the one implementation verified against real runner output. It is NOT
+ * duplicated here: two mappers means two behaviours and only one of them gets
+ * tested. This module keeps only the parts the adapter imports from it:
+ * redaction and preview (secret hygiene must be shared, not reimplemented).
  */
-export function mapDshEvent(raw: DshRawEvent, jobId: string, seqStart: number): JobEvent[] {
-  const t = rawEventType(raw).toLowerCase();
-  const at = toIso(raw.ts ?? raw.timestamp);
-  const seq = seqStart;
-  const str = (k: string): string | null => {
-    const v = (raw as Record<string, unknown>)[k];
-    return typeof v === 'string' ? v : null;
-  };
-  const num = (k: string): number | null => {
-    const v = (raw as Record<string, unknown>)[k];
-    return typeof v === 'number' ? v : null;
-  };
-
-  if (/(heartbeat|ping|keepalive|^$)/.test(t)) return [];
-
-  // Tool activity
-  const toolName = str('tool') ?? str('toolName') ?? str('name');
-  if (/tool.*(call|start|invoke|begin)/.test(t) && toolName) {
-    const args = (raw['args'] ?? raw['input'] ?? raw['arguments'] ?? {}) as Record<string, unknown>;
-    return [
-      {
-        jobId,
-        seq,
-        at,
-        type: 'job.tool_call',
-        tool: toolName,
-        args: (redact(args) ?? {}) as Record<string, unknown>,
-        callId: str('callId') ?? str('id'),
-      },
-    ];
-  }
-  if (/tool.*(result|end|complete|response)/.test(t) && toolName) {
-    const payload = raw['result'] ?? raw['output'] ?? raw['content'] ?? '';
-    const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    return [
-      {
-        jobId,
-        seq,
-        at,
-        type: 'job.tool_result',
-        tool: toolName,
-        ok: raw['ok'] !== false && raw['isError'] !== true,
-        preview: preview(String(text)),
-        callId: str('callId') ?? str('id'),
-        durationMs: num('durationMs'),
-      },
-    ];
-  }
-
-  // Assistant text
-  const textValue = str('text') ?? str('content') ?? str('delta');
-  if (/(message|text|assistant|delta|output)/.test(t) && textValue !== null) {
-    const final = raw['final'] === true || /final|done|complete/.test(t);
-    return [{ jobId, seq, at, type: 'job.text', text: textValue, final }];
-  }
-
-  // Usage
-  const pt = num('promptTokens') ?? num('inputTokens');
-  const ct = num('completionTokens') ?? num('outputTokens');
-  if (/usage|token|metrics/.test(t) && (pt !== null || ct !== null)) {
-    return [
-      {
-        jobId,
-        seq,
-        at,
-        type: 'job.usage',
-        promptTokens: pt ?? 0,
-        completionTokens: ct ?? 0,
-        toolCalls: num('toolCalls') ?? 0,
-      },
-    ];
-  }
-
-  // Explicit status transitions
-  const status = str('status');
-  if (/status|state/.test(t) && status && isJobStatus(status)) {
-    return [{ jobId, seq, at, type: 'job.status', status, detail: str('detail') ?? str('message') }];
-  }
-
-  // Everything else: keep it, labelled, with the raw payload.
-  return [
-    {
-      jobId,
-      seq,
-      at,
-      type: 'job.log',
-      level: /error|fail/.test(t) ? 'error' : /warn/.test(t) ? 'warn' : 'info',
-      message: `dsh:${t}`,
-      raw: (redact(raw) ?? null) as Record<string, unknown> | null,
-    },
-  ];
-}
-
-function isJobStatus(s: string): s is Extract<JobEvent, { type: 'job.status' }>['status'] {
-  return ['dispatched', 'running', 'waiting_approval', 'succeeded', 'failed', 'cancelled', 'interrupted'].includes(s);
-}
-
-function toIso(v: string | number | undefined): string {
-  if (typeof v === 'number') {
-    // Heuristic: seconds vs milliseconds.
-    const ms = v > 1e12 ? v : v * 1000;
-    return new Date(ms).toISOString();
-  }
-  if (typeof v === 'string') {
-    const d = new Date(v);
-    if (!Number.isNaN(d.getTime())) return d.toISOString();
-  }
-  return new Date().toISOString();
-}

@@ -1,0 +1,60 @@
+# Appliance overrides — i7-10700KF (8C/16T) · 32 GB DDR4 · 512 GB SSD · RX 580.
+#
+# Use alongside the base file, never instead of it:
+#   docker compose -f docker-compose.yml -f docker-compose.appliance.yml up -d
+#
+# Only overrides live here. Rationale for each number is in infra/appliance/README.md;
+# the short version: 3 agent workers (model-API bound), speech capped at 16 GB,
+# Postgres left to the page cache, and every container's logs bounded so a
+# chatty service can never repeat the incident where a host volume hit 0 bytes.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  postgres:
+    logging: *logging
+    shm_size: 512m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=8GB
+      - -c
+      - max_connections=60
+      - -c
+      # Surface slow queries in the log instead of guessing later.
+      - log_min_duration_statement=1000
+
+  api:
+    logging: *logging
+
+  worker:
+    logging: *logging
+    environment:
+      # 16 threads available, but agent runs are I/O bound on the model API.
+      # 3 concurrent runs leaves CPU for ASR and builds; beyond that latency,
+      # not throughput, degrades.
+      WORKER_CONCURRENCY: "3"
+      JOB_TIMEOUT_MS: "900000"
+
+  voicestudio:
+    logging: *logging
+    # One small-ASR run peaks ~1.1 GB; 16 GB allows concurrent transcriptions
+    # plus the model cache without driving the box into swap.
+    mem_limit: 16g
+    memswap_limit: 16g
+    environment:
+      # 8 physical cores: give speech 4 threads and leave the rest to the
+      # workers and to builds. Oversubscribing BLAS threads is slower, not faster.
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+      # Measured on the reference 8 vCPU box: small = 0.258 RTF at 0% WER,
+      # medium = 0.690 RTF at the same WER. Small is the default; switch to
+      # medium (one env line) only for offline batch transcription where
+      # latency does not matter.
+      ASR_MODEL_FASTER: "${ASR_MODEL_FASTER:-Systran/faster-whisper-small}"
