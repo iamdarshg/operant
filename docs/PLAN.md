@@ -955,3 +955,43 @@ on. Not yet fixed, and now stated plainly in the report: the bot is undeployed.
 Note that `packages/db` has no tests, which is uncomfortable: it owns the lease
 claims, the transactional approval decision and the scheduler CAS — the three
 places where a subtle bug is most expensive. That is the next honest gap to close.
+
+---
+
+## 27. Round 18 — the database layer finally has tests, and they paid immediately
+
+`packages/db` owned the three most expensive invariants in the system and had **no
+tests**: lease claiming under concurrency, the transactional approval decision, and
+the scheduler's compare-and-swap. Every one of them depends on row locking and
+`SKIP LOCKED`, which an in-memory fake would happily get wrong — so these run
+against a real Postgres, in a scratch database that is dropped and recreated.
+
+`packages/db/src/db.test.ts`, six tests:
+
+| Invariant | What it proves |
+|---|---|
+| migrations + seeds | schema applies, built-in agents exist |
+| SKIP LOCKED | three concurrent claims return **distinct** jobs; the task moves to `running` |
+| roll-up | a policy-blocked `interrupted` attempt does **not** fail the task |
+| approve | exactly **one** job is created; a **second** decision is refused and adds none |
+| reject | **zero** jobs created, task `cancelled` |
+| schedule CAS | first claim fires, second returns `false` |
+
+Skipped (not passed) when `OPERANT_TEST_DATABASE_URL` is unset, with a warning —
+a visible skip, never a silent green.
+
+### Two real bugs the tests found on the first run
+1. `decideApproval` threw `UNDEFINED_VALUE: Undefined values are not allowed`
+   because the stored job spec's `dshProfile` was passed straight to SQL. Any
+   approval created without that field — a real possibility, including from the
+   tool-boundary path — would have failed at decision time, in production, after a
+   human had already clicked Approve.
+2. The same statement used `tx.json(...)`, which failed to stringify inside that
+   transaction. Now serialised explicitly and cast to `jsonb`.
+
+Both are in the approve path, which had been "verified" live earlier — the live
+test only exercised the shape the code happened to produce, which is exactly what a
+test is for and a demo is not.
+
+### `--passWithNoTests` removed from `packages/db` too
+It now has tests, so the mask comes off; a missing suite fails loudly.

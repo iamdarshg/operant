@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "postgres": "3.4.5",
@@ -25,3 +25,4 @@
     "drizzle-kit": "0.30.1"
   }
 }
+

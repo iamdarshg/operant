@@ -427,12 +427,17 @@ export async function decideApproval(
     // exact command; carry it onto the new job so the guard permits precisely
     // that command and nothing else.
     const approvedCommand = (spec as { blocked?: { args?: { command?: string } } }).blocked?.args?.command;
+    // Serialised explicitly and cast, rather than going through tx.json(): the
+    // helper failed to stringify inside this transaction and the resulting error
+    // surfaced only when a test finally exercised the approve path.
+    const approvedJson = JSON.stringify(approvedCommand ? [approvedCommand] : []);
     const [job] = await tx<{ id: string }[]>`
       INSERT INTO jobs (task_id, kind, agent_id, title, prompt, workspace_path,
                         permission_mode, max_attempts, dsh_profile, approved_commands)
       VALUES (${row.task_id}, 'execute', ${spec.agentId}, ${spec.title}, ${spec.prompt},
-              ${spec.workspacePath}, ${spec.permissionMode}, 2, ${spec.dshProfile},
-              ${tx.json((approvedCommand ? [approvedCommand] : []) as never)})
+              ${spec.workspacePath}, ${spec.permissionMode ?? 'workspace-write'}, 2,
+              ${spec.dshProfile ?? 'operant'},
+              ${approvedJson}::jsonb)
       RETURNING id`;
 
     await tx`UPDATE tasks SET status = 'queued', progress_note = ${`approved by ${actor}`},
