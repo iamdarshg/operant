@@ -1882,3 +1882,38 @@ This is the third time the same shape has appeared: a capability existed and was
 wired up — the `schedules` table, the `artifacts` table, `allowed_tools`, and now a
 colour token. The platform was not missing features so much as missing **connections
 between things it already had**. That is a more useful diagnosis than "add more".
+
+---
+
+## 49. Round 40 — a running job no longer claims to have spent zero tokens
+
+QA reported: "running job row shows 0 tokens while the tape shows 1572". Confirmed — and
+the source was `jobUsage()`:
+
+```ts
+return job.usage ?? { ms: 0, events: 0, toolCalls: 0, promptTokens: 0, completionTokens: 0 };
+```
+
+Every job that had not finished has `usage: null`, so the row confidently displayed a
+row of zeros while the tape beside it streamed the real counts. **A confident zero is
+worse than an admission of ignorance** — it looks like data, and it contradicts another
+panel on the same screen.
+
+### Fixed
+`jobUsage()` now returns `null` when usage is unknown, and the four cells render an em
+dash. Verified against a real job with `usage: null` (an interrupted one):
+
+```
+task bdd33123… job 0dc271d8… status=interrupted usage=null
+em dashes on the page: 19
+fabricated zero in a Tokens cell: False
+```
+
+The live counts for a running job would be better still — they exist in `job_events` and
+the tape already shows them — but displaying "unknown" is honest, and deriving them
+means an extra query the task page does not make.
+
+### Note for whoever picks this up
+The tape and the job row disagree because they read from different sources: the tape
+tails `job_events`, the row reads the finalised `usage` column. Any future "live"
+columns should read the same source as the tape.

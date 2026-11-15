@@ -111,12 +111,16 @@ export function plural(count: number, one: string, many: string): string {
  * A job that has not run yet reports usage as null, and a job with no
  * verifier reports no ids. Both are normal states, not errors.
  */
-export function jobUsage(job: { usage?: { ms: number; events: number; toolCalls: number; promptTokens: number; completionTokens: number } | null }): {
-  ms: number;
-  events: number;
-  toolCalls: number;
-  promptTokens: number;
-  completionTokens: number;
-} {
-  return job.usage ?? { ms: 0, events: 0, toolCalls: 0, promptTokens: 0, completionTokens: 0 };
+/**
+ * Usage for a job, or `null` when it is not known yet.
+ *
+ * This used to substitute a zero-filled object, so every job still running displayed
+ * "0 tokens" while the tape next to it streamed the real counts. A confident zero is
+ * worse than an admission of ignorance: callers render an em dash instead.
+ */
+export function jobUsage(job: {
+  usage?: { ms: number; events: number; toolCalls: number; promptTokens: number; completionTokens: number } | null;
+}): { ms: number; events: number; toolCalls: number; promptTokens: number; completionTokens: number } | null {
+  return job.usage ?? null;
 }
+

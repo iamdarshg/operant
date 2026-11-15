@@ -174,16 +174,16 @@ export default async function TaskPage({
                     <StatusWord status={job.status} />
                   </td>
                   <td className="n" data-label="Events">
-                    {jobUsage(job).events}
+                    {jobUsage(job)?.events ?? '—'}
                   </td>
                   <td className="n" data-label="Tool calls">
-                    {jobUsage(job).toolCalls}
+                    {jobUsage(job)?.toolCalls ?? '—'}
                   </td>
                   <td className="n" data-label="Tokens in">
-                    {jobUsage(job).promptTokens}
+                    {jobUsage(job)?.promptTokens ?? '—'}
                   </td>
                   <td className="n" data-label="Tokens out">
-                    {jobUsage(job).completionTokens}
+                    {jobUsage(job)?.completionTokens ?? '—'}
                   </td>
                   <td className="n" data-label="Took">
                     {duration(job.started_at, job.finished_at)}
@@ -304,5 +304,6 @@ export default async function TaskPage({
     </>
   );
 }
+
 
 
