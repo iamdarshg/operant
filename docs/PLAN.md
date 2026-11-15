@@ -1450,3 +1450,56 @@ by design.
 Remaining known gaps are now: prose-gate coverage unknown by construction; tool
 boundary reacts rather than pre-empts; `packages/ui` untested; local MCP guard is a
 manual process; restore never tried on a different host.
+
+---
+
+## 39. Round 30 — the crown claim re-verified against the current system
+
+"Survives a restart" was proven in an early round, before the MCP guard, the bot
+unit, the artifacts ledger, the scheduler and the wire contract existed. A claim
+verified against a smaller system is not verified, so it was re-run.
+
+### Evidence
+
+```
+before:  boot id 275b3db3-…  ·  api/worker/guard active  ·  bot inactive (disabled)
+reboot issued
+after:   boot id cefb937b-…  ·  uptime 1 minute        <- it really restarted
+         operant-api         active / enabled
+         operant-worker      active / enabled
+         operant-mcp-guard   active / enabled
+         operant-bot         inactive / disabled        <- still intentionally off
+         postgres container  running, restart=unless-stopped
+         health              {"state":"healthy","checks":[{"name":"postgres",...}]}
+         failed units        0
+```
+
+Then, with no intervention:
+
+```
+POST /v1/requests -> task succeeded, result "POST-REBOOT-PASS"
+schedules         -> still armed for the next occurrence
+/v1/voice/health  -> healthy via the MCP guard
+artifacts         -> 0 for this task (correct: the agent wrote no files)
+```
+
+### What this does and does not establish
+It establishes the operator definition of done: *a real request succeeds
+end-to-end, survives a restart, leaves an auditable trail, and needs no manual
+repair.* Everything came back by itself — no `systemctl start`, no container
+nudge, no reconfiguration.
+
+It does **not** establish that a job survives being *interrupted mid-flight* by the
+reboot. There was no in-flight work at the time (checked before rebooting: 0 queued,
+dispatched or running jobs), so the lease-reclaim path was not exercised this round.
+It was exercised in the earlier reboot test; re-exercising it would need a
+deliberately killed job, which is worth doing and was not done here.
+
+### State at the end of this round
+248 tests green; 224 tracked files; tree clean; API, worker and MCP guard active on
+boot; bot installed and disabled pending a Discord token.
+
+The three remaining blockers are all human decisions, not engineering: the Discord
+bot token (gateway login is the only unproven leg of the platform), the VoiceStudio
+licence acceptance for synthesis, and approval to rewrite git history so the rotated
+bearer stops appearing in `1feda7c`.
