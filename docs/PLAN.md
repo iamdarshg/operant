@@ -1641,3 +1641,61 @@ host, `scp` sending from the wrong directory, and now `pgrep` matching itself. T
 pattern is consistent: **before acting on a surprising measurement, measure the
 measurement.** On this evidence the failure mode that looks most alarming is also the
 easiest to fake.
+
+---
+
+## 43. Round 34 — the timeout mystery, resolved
+
+Last round I left `JOB_TIMEOUT_MS` as "unverified, cause unknown". Resolved, and the
+cause was not where I was looking.
+
+### Three measurements, in order
+
+**1. Is the adapter timeout itself sound?** Tested in isolation, bypassing systemd:
+
+```
+runDshJob({ prompt: 'sleep 60', timeoutMs: 8000 })
+-> elapsed=8s  timedOut=true  cancelled=false  ok=false   eventCount=8
+```
+
+The mechanism works and fires on time. So the adapter was never the problem.
+
+**2. What is the timeout actually set to in production?**
+
+```
+/proc/<worker>/environ  ->  JOB_TIMEOUT_MS=900000
+```
+
+**Fifteen minutes**, set in `.env` via `EnvironmentFile=`. My round-33 attempt set
+`Environment=JOB_TIMEOUT_MS=60000` in the unit and assumed it would win; it did not.
+That alone explains the whole previous result: a 60-second budget was never in force,
+so nothing could have fired at 60 s — and the 180-second change I observed was the
+lease expiring after my own restart, exactly as I suspected but could not prove.
+
+**3. Does it work end to end with the effective value?** Changed `.env` to 60 000,
+restarted, submitted a job that sleeps 300 s:
+
+```
+attempt 1  -> "timed out after 60000ms"  -> job failed, requeued
+attempt 2  -> "timed out after 60000ms"  -> job failed permanently
+final      -> interrupted | attempt 2 | "timed out after 60000ms"
+```
+
+So: the wall clock fires, the retry accounting counts it, the cap stops it. Exactly
+the behaviour claimed, now with evidence.
+
+### One wart found while proving it
+A timeout finalises the job as **`interrupted`**, not `failed`, because the worker maps
+`timedOut` onto that status. Everything downstream treats it as terminal so nothing is
+broken, but an operator reading the job list sees "interrupted" for something that
+exhausted its retries. Worth aligning; not worth hiding.
+
+### Restored
+`.env` is back to `JOB_TIMEOUT_MS=900000`, the fixture task was deleted, the worker is
+active with the original environment. Verified from `/proc/environ`, not assumed.
+
+### The general lesson, again
+Last round I looked for the cause in the worker's code and the unit file. The value
+came from a third place — `.env` via `EnvironmentFile` — and my unit-level override was
+silently outranked. **Read the effective value from the running process; never infer it
+from where you think it is configured.**
