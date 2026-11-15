@@ -120,8 +120,17 @@ actual sha256           = bb5fd045…58ee   (match)
 6. **Schedules and artifacts now have a UI surface** (`/schedules` with create and
    delete; "Files produced" on the task page). Schedules have **no Discord
    commands**, so recurring work cannot yet be created from the chat interface.
-7. **The web app keeps duplicate wire types** rather than importing `@operant/core`
-   — the one place the contract can drift.
+7. **The typed contract does not describe the wire format.** `packages/core`'s zod
+   `Task` requires camelCase `projectId`, `requestedBy`, `supervisorJobId`,
+   `conversationId`; the API returns snake_case `project_key`, `requested_by`,
+   `supervisor_job_id`, `conversation_id` (nullable). Validating real responses
+   through the core schema fails on every task. The web app's hand-written
+   `lib/shape.ts` was written against the *actual* wire format, so it is the accurate
+   mirror and core is the aspirational one — the opposite of what the duplicated
+   types suggested. Nothing in the API validates response bodies against the
+   contract, which is why this never surfaced. Aligning the schema (and adding
+   response validation) is the next round's work; a contract test proving it exists
+   in git history and will be reinstated when the shapes agree.
 8. **Both backup paths are now exercised.** A live `pg_dump` restored into a scratch
    database reproduced every row count and real content (§10), and the actual state
    volume (`operant-pgdata`) was backed up and restored into a scratch volume:

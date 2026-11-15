@@ -1103,3 +1103,55 @@ suite cannot silently disappear.
 
 Running total: **211 tests** (core 55, dsh-adapter 14, learning 24, db 6, web 38,
 bot 74).
+
+---
+
+## 31. Round 22 — the typed contract does not describe the wire format
+
+I set out to fix the "duplicate wire types" gap by proving drift at the source:
+a contract test that asks the live API for real resources and parses them through
+`@operant/core`'s zod objects.
+
+It failed immediately, and the failure is the finding:
+
+```
+contract.test.ts > every task in the list parses as a Task
+  → tasks that do not match the contract
+contract.test.ts > a task detail and its jobs match the contract
+  → [{"path":["projectId"],"code":"invalid_type","received":"undefined"},
+     {"path":["requestedBy"],...},{"path":["supervisorJobId"],...},
+     {"path":["conversationId"],...}]
+```
+
+The API returns:
+
+```json
+{"id":"59b64e45-…","intent":"…","status":"succeeded","project_key":null,
+ "requested_by":"perm-test","conversation_id":null,"supervisor_job_id":null}
+```
+
+So `packages/core`'s `Task` demands **camelCase, required, non-null** fields that
+the API has never returned. The schema describes an intended domain model, not the
+HTTP surface.
+
+### The conclusion inverts the earlier assumption
+When I added compile-time drift guards to `apps/web/lib/shape.ts`, I framed the web
+mirror as the drifting copy. The opposite is true: `shape.ts` was written against
+the real wire format, so **the web is accurate and core is aspirational**. The
+duplicate existed precisely because core could not be used — importing it would
+have produced types that do not match a single response.
+
+Nothing caught this because **no layer validates response bodies**: the API returns
+database rows and the schemas are only used for input validation and type
+annotations. A typed API whose types are never checked against its output is a
+document, not a contract.
+
+### Action taken this round
+The failing harness is removed from the tree rather than left red (a permanently
+failing suite trains people to ignore failures) and its content is preserved in git
+history. It gets reinstated once the schema and the wire format agree. The gap is
+now recorded in the deployment report with the exact field mismatches, instead of
+the vague "duplicate wire types" line it replaced.
+
+Not done, and stated as such: aligning `packages/core` to the wire format, and
+adding response validation to the API so this class of drift cannot recur silently.
