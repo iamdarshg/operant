@@ -1,0 +1,21 @@
+{
+  "name": "operant",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm -r --if-present run build",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "lint": "pnpm -r --if-present run lint",
+    "dev:api": "pnpm --filter @operant/api dev",
+    "dev:web": "pnpm --filter @operant/web dev",
+    "dev:bot": "pnpm --filter @operant/bot dev"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2",
+    "vitest": "2.1.8",
+    "@types/node": "22.10.2"
+  }
+}
