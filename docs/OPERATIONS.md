@@ -15,7 +15,7 @@ dependencies, no absolute host paths, no committed credentials.
 |---|---|---|---|---|
 | 1 | `SURPLUS_API_KEY` (or `ANTSEED_API_KEY`) | `secrets/.credentials.yaml` | Your model-provider account | Every agent run dies `MISSING_CREDENTIAL` before doing work |
 | 2 | `OPERANT_BOT_TOKEN` | `.env` (both machines, **identical**) | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` | The API refuses to start below 16 chars (fail-closed) |
-| 3 | `DISCORD_BOT_TOKEN` + `DISCORD_APP_ID` | `.env` | Discord Developer Portal → your app → Bot | Bot cannot log in; everything else works |
+| 3 | `DISCORD_BOT_TOKEN` + `DISCORD_APP_ID` | `.env` | Discord Developer Portal → your app → Bot | Bot cannot log in; everything else works. Once set: `sudo systemctl enable --now operant-bot`. Until then the unit is installed and **disabled on purpose** — it exits 1 without a token and would burn the start limit. |
 | 4 | `DISCORD_ALLOWED_USER_IDS`, `DISCORD_ALLOWED_CHANNEL_IDS` | `.env` | Your Discord ids | **Empty = nobody is authorized**; the bot refuses everyone (intentional) |
 | 5 | Tailscale auth key *(optional)* | operator-side only | Tailscale admin console | SSH-over-IAP remains the private path |
 

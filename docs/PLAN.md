@@ -1025,3 +1025,38 @@ Removed the package and the dependency. Rebuilt the dependency chain
 the removal, but the errors were unresolved `@operant/*` modules because those
 packages had never been built *locally* — they were built on the VM. The failure was
 my local checkout, not the change.)
+
+---
+
+## 29. Round 20 — the bot reaches the host and diagnoses itself
+
+The Discord bot had never been deployed: `apps/bot/src` was empty on `operant-core`
+and no service unit existed. It now is, and the one thing that is verified is the
+one thing that can be verified without a Discord token.
+
+- Source (17 files) and tests (8 files) copied; `tsc` build succeeds on the host.
+- `operant-bot.service` installed, hardened (`ProtectSystem=strict`,
+  `ProtectHome=read-only`, no write paths beyond `data`), and **deliberately
+  disabled** — without a token it exits 1 and would consume the start-limit budget.
+- Its own `--check`, run **on the host against the live control plane**, reports:
+
+```
+config ok — api=http://127.0.0.1:8787 · allow-list users=0 channels=0 (closed)
+intents — GUILDS | GUILD_MESSAGES | GUILD_VOICE_STATES; MESSAGE_CONTENT not requested
+API reachable — GET /v1/health state=healthy dshProfile=operant [postgres=healthy]
+API auth ok — bearer accepted by GET /v1/tasks (1 task visible)
+DISCORD_BOT_TOKEN missing — the Discord gateway cannot log in; startup would exit 1
+allow-list empty — this is fail-closed: every message will be refused until ids are configured
+intents degraded mode — MESSAGE_CONTENT is privileged...
+check: config ok · API reachable · token missing → NOT RUNNABLE (exit 1)
+```
+
+Exit code **1**, exactly as designed. That single output is worth more than a claim
+that the bot "works": it demonstrates the deployable artifact authenticates against
+the real API, and names the one missing prerequisite itself.
+
+Two of my own errors along the way, both the same shape as earlier ones:
+I guessed the entry point was `dist/main.js` (it is `dist/index.js`), and I wrapped
+the script in `set -e` while running a command that is *supposed* to exit 1, so the
+harness reported failure around a successful install. Verify the artifact's own
+contract instead of assuming a filename or an exit code.
