@@ -121,3 +121,56 @@ D:\CodeProjects\operant
 
 No two owners write the same path. The Lead reviews every diff and runs the
 integrated build/test before any phase is called complete.
+---
+
+## 8. Repo location and portability (decision 2026-11-15)
+
+**Canonical repository: `E:\CodeProjects\operant`.** Moved off `D:` after that
+volume reached 0 bytes free and truncated a source file (recovered from a copy
+and from git; no loss). Operator decision, with the stated intent of cloning it
+onto an SSD on a future physical machine — so portability is a requirement, not
+a nicety.
+
+Portability contract now enforced:
+
+| Requirement | How |
+|---|---|
+| Clone and run with Docker only | `docker-compose.yml` + `Dockerfile`; no host DSH needed, the agent runtime is baked in at a pinned `0.2.2-rc.1` |
+| No host absolute paths | everything relative except `DSH_CREDENTIALS_FILE`, which is inherently host-specific and comes from `.env` |
+| No secrets in git | `.env` and `secrets/` gitignored, verified with `git check-ignore`; only `SURPLUS_API_KEY` + `OPERANT_BOT_TOKEN` are manual |
+| Reproducible agent config | `services/dsh/profiles/operant/` is the versioned DSH profile (route, search provider, MCP client) |
+| Loopback-only exposure | API `127.0.0.1:8787`, speech `127.0.0.1:3900`; no public listener by design |
+| Documented migration | `docs/runbooks/portable-deploy.md` §6 (three Docker volumes) |
+
+## 9. Dual DSH ↔ VoiceStudio MCP acceptance matrix (2026-11-15)
+
+| Test | Result | Evidence |
+|---|---|---|
+| Cloud DSH discovers VoiceStudio tools | **PASS** | 9 tools listed, e.g. `mcp__voicestudio__transcribe` with params `audio_base64`, `audio_path`, `language` |
+| Cloud DSH transcribes a sample | **PASS** | exact text of the bench clip, `engine=faster-whisper`, 7.0 s audio |
+| Cloud DSH invokes synthesis | **BLOCKED** | `HTTP 403 Licence not accepted for k2-fsa/OmniVoice, eustlb/higgs-audio-v2-tokenizer`. Accepting a licence is an operator-only legal action. CPU synthesis *does* work via the OpenAI-compatible endpoint using the non-gated `kittentts` engine (200, valid 312 KB WAV). |
+| Local DSH discovers the same tools | **PASS** | same 9 tools from the laptop |
+| Local DSH transcribes a different sample | **PASS** | new TTS-generated clip → "Yellow lanterns drift above the harbor while the tide turns slowly.", 3.4 s |
+| Local DSH accesses voice profiles | **PASS** | `list_voices` → 1 profile (`demo0001`, demo) |
+| Concurrent use without corrupting sessions | **PASS** | separate sessions on each host, both completed |
+| Unauthorized external access denied | **PASS** | `Host: evil.example` → `403`; only `127.0.0.1:3900` and `127.0.0.1:8787` listen |
+| Service restart does not break clients | **PASS** | container recreated mid-session; cloud client kept transcribing afterwards |
+| Unavailable service does not crash local DSH | **PASS** (dead-port overlay) | turn still completed; tools reported as `server is disconnected` |
+| VoiceStudio independently accessible | **PASS** | direct curl: `/health`, `/v1/audio/transcriptions`, `/v1/audio/voices`, `/v1/models` |
+
+Transport note: the laptop reaches the cloud service over **SSH port-forwarding
+multiplexed through Google IAP** — authenticated and encrypted, no inbound port
+opened, because the service binds loopback only and IAP's direct TCP forwarding
+cannot reach a loopback listener. Tailscale is the intended steady state once an
+account auth key is available.
+
+## 10. Current honest gaps
+
+1. **Discord bot not built yet** (operator deferred it to the end): no real
+   gateway test, no voice-message ingestion.
+2. **Dashboard not built**: Hallmark design system and all screens outstanding.
+3. **Synthesis over MCP blocked** by the licence gate above.
+4. **Learning loop not built**: incidents/improvements tables exist, no worker.
+5. **Services run under `nohup` on the VM**, not systemd/compose yet — the
+   compose stack is validated locally but not yet running on the VM.
+6. **`D:\CodeProjects\operant`** remains as an empty, locked directory.
