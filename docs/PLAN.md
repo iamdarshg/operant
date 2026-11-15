@@ -1917,3 +1917,32 @@ means an extra query the task page does not make.
 The tape and the job row disagree because they read from different sources: the tape
 tails `job_events`, the row reads the finalised `usage` column. Any future "live"
 columns should read the same source as the tape.
+
+---
+
+## 50. Round 41 — the report was drifting from the system
+
+The deployment report is the deliverable an evaluator reads first, and it had gone stale
+in two places:
+
+1. **`db 6` tests** — the suite has **8** since the reclaim/retry tests were added. The
+   stated total of 250 happened to still be right, which is exactly how a stale document
+   survives: the number a reader checks is correct while the breakdown underneath it is
+   not.
+2. **Gap 7** still read "the typed contract does not describe the wire format… response
+   validation is the next round's work". That was true two rounds ago and is now half
+   false: `wire.ts` exists, ten read endpoints validate their own output, and live traffic
+   produces zero violations.
+
+Both corrected, with the remaining half stated precisely — `schema.ts` itself is still
+unaligned, so anyone importing `Task` instead of `TaskWire` gets a type matching no
+response. The gap is narrower, not gone.
+
+### Verified totals
+core 92 · dsh-adapter 14 · learning 24 · db 8 · web 38 · bot 74 = **250**, matching the
+report after the correction.
+
+### Lesson
+Documentation that is *mostly* right is harder to catch than documentation that is wrong.
+The total was correct; only the components were stale. Re-reading a report against
+running evidence is a real verification step, not bookkeeping.
