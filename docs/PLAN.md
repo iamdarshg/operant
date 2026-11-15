@@ -430,3 +430,66 @@ error), proxy returns **3 tasks / 2 pending approvals**, and the full
 Process note: my first attempt probed port 3101, which was the *QA reviewer's* own
 server, and reported a false "still broken". Checking which process owns a port
 before trusting its output matters.
+
+---
+
+## 15. Round 6 — three dead controls, found by independent QA, all fixed
+
+The QA reviewer walked the rendered app and found three controls that looked
+functional and were not. That is exactly the failure mode the mission forbids, so
+each is fixed and re-verified through the browser proxy (not curl directly).
+
+### 1. "Cancel task" was dead
+The Next proxy attached `content-type: application/json` to every POST, including
+body-less ones. Fastify rejects that with `FST_ERR_CTP_EMPTY_JSON_BODY` (400), so
+the UI showed "Bad Request" while the job kept running.
+
+Two fixes, because either alone leaves the trap:
+- the proxy now sets the content-type **only when a body exists**;
+- the API registers a JSON parser that treats an **empty body as `{}`** rather than
+  a malformed request ("no arguments" is not "bad request").
+
+Verified through the proxy: `POST /api/v1/tasks/:id/cancel` → `200 {"cancelled":1}`.
+
+### 2. Approve and Reject lied
+`decideApproval` was rewritten last round to return
+`{decided, decision, taskId, jobId, status}`, but the client still required the old
+`body.approval`. A successful decision therefore rendered "the control plane
+answered 200", the row stayed pending, and the counter never moved.
+
+`ApprovalActions` now treats `decided:true` as the contract, reports what really
+happened (including the created job id and a link to the task), and calls
+`router.refresh()` so the server-rendered queue cannot go stale.
+
+Verified through the proxy: gated request (`jobId` empty) → approve →
+`decided:true, jobId 5f5500a0…, status queued` → task `running` with 1 job.
+
+### 3. "Ask for a second job to verify the result" was decorative
+`require_verification` was stored and read by nothing: no verifier job, and
+`verified_by_job_ids` stayed null, while the task detail screen printed
+"Verified by: no verification job".
+
+The worker now enqueues a real `review` job (agent `review`, `read-only`,
+`parent_job_id` = the execute job) with a prompt that demands evidence rather than
+agreement, appends it to the execute job's `verified_by_job_ids`, and moves the
+task to `reviewing` so it is not reported as finished while its reviewer runs.
+
+Verified: `jobs → execute:succeeded, review:running`; `verified_by_job_ids` length 1;
+task status `reviewing`.
+
+### Known-open UI defects (from the same review, not yet fixed)
+
+| Sev | Defect |
+|---|---|
+| HIGH | The control-screen tape attaches to the newest non-terminal **task**, and a held approval has no job — so it shows "No job exists yet" while jobs are streaming |
+| MED | No link from an approval row to its task/job (partly addressed: the decided state now links) |
+| MED | Absolute times rendered UTC with no zone label on an IST browser |
+| MED | Board error paragraph on the ink band is 2.85:1 and leaks `TypeError: fetch failed` |
+| MED | `/approvals` has no auto-refresh |
+| LOW | At 768 px the State/Took columns nearly touch; sub-24 px tap targets; running row shows 0 tokens while the tape shows 1572 |
+
+Verified working by the reviewer and not regressed: dispatch (202 + row + feedback,
+mouse and keyboard), memory search/zero-state/write, the tape really streams
+(seq 84→128 in 24 s over SSE), cancel absent on terminal tasks, 38 tab stops all
+ringed, skip link, landmarks, `role="log"`, no horizontal overflow at
+1440/768/390, proxy whitelist 404s unproxied paths.

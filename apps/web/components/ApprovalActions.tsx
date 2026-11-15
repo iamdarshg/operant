@@ -1,19 +1,44 @@
 'use client';
 
 import { useId, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { Approval } from '@/lib/shape';
 import { stamp } from '@/lib/format';
 
+/** What POST /v1/approvals/:id/decide actually returns. */
+interface DecideResponse {
+  decided?: boolean;
+  decision?: 'approve' | 'reject';
+  taskId?: string;
+  jobId?: string | null;
+  status?: string;
+  error?: string;
+  detail?: string;
+}
+
+interface Decided {
+  decision: 'approve' | 'reject';
+  status: string;
+  taskId: string | null;
+  jobId: string | null;
+}
+
 /**
- * Approve or reject through POST /v1/approvals/:id/decide. The row reports the
- * decision the API returned, including the 409 an already-decided approval
- * produces, rather than optimistically showing success.
+ * Approve or reject through POST /v1/approvals/:id/decide.
+ *
+ * The API answers `{decided, decision, taskId, jobId, status}` — it moved from
+ * returning the raw approval row, and the client kept requiring the old
+ * `body.approval`, so a successful decision rendered as "the control plane
+ * answered 200" and the row stayed pending. Treating `decided:true` as the
+ * success signal is the contract; on success we refresh the server-rendered
+ * queue so the row and the pending counter cannot go stale.
  */
 export function ApprovalActions({ approval }: { approval: Approval }) {
   const uid = useId();
+  const router = useRouter();
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<null | 'approve' | 'reject'>(null);
-  const [decided, setDecided] = useState<Approval | null>(null);
+  const [decided, setDecided] = useState<Decided | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function decide(decision: 'approve' | 'reject') {
@@ -25,16 +50,26 @@ export function ApprovalActions({ approval }: { approval: Approval }) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ decision, decidedBy: 'dashboard', ...(note.trim() ? { note: note.trim() } : {}) }),
       });
-      const body = (await res.json().catch(() => ({}))) as { approval?: Approval; error?: string };
-      if (!res.ok || !body.approval) {
+      const body = (await res.json().catch(() => ({}))) as DecideResponse;
+
+      if (!res.ok || body.decided !== true) {
         setError(
           res.status === 409
-            ? 'The API refused: this approval is no longer pending.'
+            ? `The API refused: ${body.detail ?? 'this approval is no longer pending.'}`
             : (body.error ?? `the control plane answered ${res.status}`),
         );
         return;
       }
-      setDecided(body.approval);
+
+      setDecided({
+        decision: body.decision ?? decision,
+        status: body.status ?? 'queued',
+        taskId: body.taskId ?? null,
+        jobId: body.jobId ?? null,
+      });
+      // Server-rendered queue: refetch so the decided row leaves "pending" and
+      // the counter changes, instead of the page lying until a manual reload.
+      router.refresh();
     } catch (err) {
       setError(`the decision never left this page: ${String(err)}`);
     } finally {
@@ -43,11 +78,23 @@ export function ApprovalActions({ approval }: { approval: Approval }) {
   }
 
   if (decided) {
+    const rejected = decided.decision === 'reject';
     return (
-      <p className="approval__decided" role="status">
-        {decided.status} by {decided.decided_by ?? 'dashboard'} at {stamp(decided.decided_at ?? null)}
-        {decided.decision_note ? `: ${decided.decision_note}` : ''}
-      </p>
+      <div className="approval__decided" role="status">
+        <p>
+          {rejected ? 'Rejected' : 'Approved'} by dashboard at {stamp(new Date().toISOString())}.{' '}
+          {rejected ? (
+            <>The task was cancelled and no job was created.</>
+          ) : decided.jobId ? (
+            <>
+              A job exists now: <a href={`/tasks/${decided.taskId ?? ''}`}>{decided.jobId.slice(0, 8)}</a> — the task was{' '}
+              {decided.status}.
+            </>
+          ) : (
+            <>The task was {decided.status}.</>
+          )}
+        </p>
+      </div>
     );
   }
 

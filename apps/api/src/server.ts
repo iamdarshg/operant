@@ -73,6 +73,28 @@ const app = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info' } });
 
 await app.register(cors, { origin: true, credentials: false });
 
+/**
+ * Tolerate an empty body on POSTs that declare JSON.
+ *
+ * Fastify's default JSON parser rejects `content-type: application/json` with a
+ * zero-length body (FST_ERR_CTP_EMPTY_JSON_BODY). Endpoints like
+ * `POST /v1/tasks/:id/cancel` take no body, so a client that sets the header
+ * anyway — which a naive proxy will do — got a 400 and the control appeared
+ * broken. An empty body means "no arguments", not "malformed request".
+ */
+app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+  const text = typeof body === 'string' ? body.trim() : '';
+  if (text.length === 0) {
+    done(null, {});
+    return;
+  }
+  try {
+    done(null, JSON.parse(text));
+  } catch (err) {
+    done(err as Error, undefined);
+  }
+});
+
 /** Bearer check. Uses a constant-time-ish comparison to avoid timing leaks. */
 function authorized(header: string | undefined): boolean {
   if (!header?.startsWith('Bearer ')) return false;

@@ -58,7 +58,11 @@ async function forward(req: NextRequest, segments: string[], method: 'GET' | 'PO
   let body: string | undefined;
   if (method === 'POST') {
     body = await req.text();
-    headers['content-type'] = 'application/json';
+    // Only declare a JSON content-type when there IS a body. Sending
+    // `content-type: application/json` with an empty body makes Fastify reject
+    // the request with FST_ERR_CTP_EMPTY_JSON_BODY (400) — which is exactly why
+    // "Cancel task" was dead in the UI while the same endpoint worked from curl.
+    if (body.length > 0) headers['content-type'] = 'application/json';
   }
 
   let upstream: Response;

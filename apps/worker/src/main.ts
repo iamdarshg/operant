@@ -184,6 +184,49 @@ async function executeJob(job: JobRow): Promise<void> {
       usage,
       sessionId: result.sessionId,
     });
+
+    // `requireVerification` used to be stored and never read — a checkbox that
+    // lied. When the operator asked for independent verification, enqueue a
+    // review job now and record it as the verifier of this job.
+    if (task.require_verification && job.kind === 'execute') {
+      const [existing] = (await db`
+        SELECT id FROM jobs WHERE task_id = ${task.id} AND kind IN ('review','verify') LIMIT 1`) as { id: string }[];
+      if (!existing) {
+        const verifyPrompt = [
+          'You are the independent verifier. Another agent produced the result below; you did not write it.',
+          '',
+          `ORIGINAL REQUEST: ${task.intent}`,
+          '',
+          'RESULT CLAIMED:',
+          (result.finalText ?? '(no result text)').slice(0, 3000),
+          '',
+          `WORKING DIRECTORY: ${job.workspace_path}`,
+          '',
+          'RULES:',
+          '- Check the claim against reality; run the commands you rely on.',
+          '- Report VERIFIED or NOT VERIFIED with the specific evidence (command output, file:line).',
+          '- If the claim cannot be checked, say so instead of approving it.',
+          '- Keep it under 200 words.',
+        ].join('\n');
+        const [verifier] = (await db`
+          INSERT INTO jobs (task_id, kind, agent_id, parent_job_id, title, prompt, workspace_path,
+                            permission_mode, max_attempts, dsh_profile)
+          VALUES (${task.id}, 'review', 'review', ${job.id}, ${`Verify: ${task.title}`.slice(0, 200)},
+                  ${verifyPrompt}, ${job.workspace_path}, 'read-only', 1, ${job.dsh_profile})
+          RETURNING id`) as { id: string }[];
+        if (verifier) {
+          await db`UPDATE jobs SET verified_by_job_ids = array_append(verified_by_job_ids, ${verifier.id}::uuid),
+                                   updated_at = now()
+                    WHERE id = ${job.id}`;
+          // The task is not done while its independent reviewer is still running.
+          // finalizeJob() above marked it `succeeded` because, at that instant,
+          // the verifier did not exist yet.
+          await db`UPDATE tasks SET status = 'reviewing', updated_at = now()
+                    WHERE id = ${task.id} AND status = 'succeeded'`;
+          log('verification job queued', { jobId: job.id, verifierJobId: verifier.id });
+        }
+      }
+    }
     // Episodic memory: what happened, in the user's terms. Written only on
     // success so a failed attempt cannot masquerade as a lesson.
     await insertMemory(db, {
