@@ -110,6 +110,31 @@ describe.skipIf(BASE_URL === '')('database invariants', () => {
     expect(row[0]?.status).toBe('running');
   });
 
+  it('counts a reclaimed attempt as a retry', async () => {
+    // A crashed worker leaves the job `running` with a lease that later expires.
+    // Reclaiming it is a second attempt, and the counter must say so — otherwise
+    // max_attempts can never stop a job that keeps dying.
+    const { job } = await createTaskWithJob(db, newTask('reclaim'), newJob('reclaim'));
+
+    const first = await claimNextJob(db, 'w-first');
+    expect(first?.id).toBe(job.id);
+    expect(first?.attempt).toBe(1);
+
+    // Simulate the lease running out while the worker is dead.
+    await db`UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = ${job.id}`;
+
+    const second = await claimNextJob(db, 'w-second');
+    expect(second?.id).toBe(job.id);
+    expect(second?.attempt).toBe(2);
+  });
+
+  it('does not count a first claim as a retry', async () => {
+    const { job } = await createTaskWithJob(db, newTask('fresh'), newJob('fresh'));
+    const claimed = await claimNextJob(db, 'w-fresh');
+    expect(claimed?.id).toBe(job.id);
+    expect(claimed?.attempt).toBe(1);
+  });
+
   it('does not count a policy-blocked attempt as a task failure', async () => {
     const { task, job } = await createTaskWithJob(db, newTask('blocked-row'), newJob('blocked-row'));
     await claimNextJob(db, 'w1');

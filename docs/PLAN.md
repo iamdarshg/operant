@@ -1503,3 +1503,57 @@ The three remaining blockers are all human decisions, not engineering: the Disco
 bot token (gateway login is the only unproven leg of the platform), the VoiceStudio
 licence acceptance for synthesis, and approval to rewrite git history so the rotated
 bearer stops appearing in `1feda7c`.
+
+---
+
+## 40. Round 31 — the retry limit was silently inert
+
+Tested the one durability claim that had never been re-exercised: a job interrupted
+**mid-flight** by a worker crash.
+
+### The reclaim itself works
+```
+submit "run sleep 60"                 -> task running, job running, attempt 1, lease valid
+SIGKILL the worker's MainPID          -> job still holds a live lease (genuinely stuck)
+restart worker
+t+210s                                -> job succeeded, result "SLEPT-AND-DONE"
+worker log: job start 22:15:39 pid 3320  …  job start 22:18:39 pid 4139
+```
+
+Durability holds: an abandoned job is reclaimed by a new worker after the lease
+expires and completes. That is the property the whole queue exists for.
+
+### But the log shows the bug
+Both starts logged **`attempt: 1`**. `claimNextJob` reclaimed the job without
+incrementing the counter.
+
+And the worker *does* enforce the cap:
+
+```ts
+if (job.attempt < job.max_attempts) { requeue } else { fail }
+```
+
+So `attempt` never exceeding 1 meant **`max_attempts` could never fire**. A job that
+crashed the worker every time would be reclaimed forever, burning model calls
+indefinitely. The cap was documentation in a column.
+
+### Fixed
+`claimNextJob` now increments `attempt` when it reclaims an abandoned attempt
+(`status IN ('running','dispatched')`), and leaves it alone on a first claim — a
+fresh job is not a retry.
+
+Two new tests pin both directions:
+- reclaim after an expired lease → `attempt` **2**
+- first claim → `attempt` **1**
+
+`packages/db` suite: **8 tests**. Running total **250**.
+
+### Also verified
+A fresh job after the change still reports `attempt: 1` and succeeds, so the fix did
+not turn normal runs into retries.
+
+### Honest remainder
+The mid-flight test now proves reclaim *and* correct retry accounting, but not the
+end condition: I did not make a job fail repeatedly to watch it exhaust its attempts
+and be marked permanently failed. That specific path — cap reached → job `failed`,
+task failed, incident recorded — is still unexercised.

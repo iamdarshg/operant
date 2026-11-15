@@ -161,6 +161,14 @@ export async function claimNextJob(db: Db, workerId: string, leaseSeconds = 180)
              lease_owner = ${workerId},
              lease_expires_at = now() + (${leaseSeconds} || ' seconds')::interval,
              started_at = coalesce(started_at, now()),
+             -- Reclaiming an abandoned attempt IS a retry. Without this the counter
+             -- never moved (verified: the same job was started twice and both runs
+             -- logged attempt 1), so max_attempts could never stop a job that
+             -- crashes or is killed repeatedly.
+             attempt = CASE
+                         WHEN status IN ('running', 'dispatched') THEN attempt + 1
+                         ELSE attempt
+                       END,
              updated_at = now()
        WHERE id = (
          SELECT id FROM jobs
