@@ -36,7 +36,9 @@ import { recordIncident } from '@operant/learning';
 const DB_URL = process.env['DATABASE_URL'] ?? '';
 const CONCURRENCY = Math.min(Number(process.env['WORKER_CONCURRENCY'] ?? 2), 4);
 const DSH_PROFILE = process.env['OPERANT_DSH_PROFILE'] ?? 'operant';
-const RENEW_MS = 60_000;
+// Renew well inside the 180 s lease so a rebooted worker's job is reclaimable
+// within ~3 minutes instead of stalling on a long lease.
+const RENEW_MS = 45_000;
 const JOB_TIMEOUT_MS = Number(process.env['JOB_TIMEOUT_MS'] ?? 20 * 60_000);
 
 if (!DB_URL) {

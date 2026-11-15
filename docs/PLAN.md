@@ -294,3 +294,62 @@ t+1s task=queued  t+2s..t+6s task=running  t+7s task=succeeded  result=STATUS-TE
 The repo `.env` had a stale `OPERANT_BOT_TOKEN`, so the proxy 401'd against the
 VM. Local `.env` now matches the VM's dev token. In production this must be a
 freshly generated secret, set identically in `.env` on both sides.
+
+---
+
+## 13. Round 5 — the approval gate is now a real mechanism
+
+### Why this mattered
+The dashboard's `/approvals` screen could only ever be empty: nothing created an
+approval. An approval queue nobody can populate is not a control, it is
+decoration. This round made the gate real.
+
+### Design
+`packages/core/src/policy.ts` classifies an intent **before dispatch** and returns
+`{required, risk, kind, reasons, summary}`. Consequential classes: destructive
+operations, spend, account/credential changes, production config, external
+messages, and writes outside the workspace.
+
+The critical detail: when a request is gated, **no job row is created at all**.
+A job merely marked "queued" would be claimable by a worker and the gate would be
+decorative. The job is created inside the same transaction that approves the
+request (`decideApproval`), so an approval can never be `approved` without the
+job existing, and a job can never appear without an approval.
+
+### Verified end to end on the live stack
+
+| Step | Evidence |
+|---|---|
+| Gated request is held | `202` with `"jobId":null`, `"status":"waiting_approval"`, `"approvalRequired":true`, `risk:"medium"`, `reasons:["message sent outside this platform"]` |
+| No job exists while held | `select count(*) from jobs where task_id=…` → **0** |
+| Approval is visible | `GET /v1/approvals` returns that approval id |
+| Approve enqueues and runs | `{"decided":true,"jobId":"811a3770…","status":"queued"}` → task `running`, jobs = 1 |
+| Reject cancels, creates nothing | task status `cancelled`, jobs = **0** |
+| No double decision | second decide → `409 not_pending_or_missing · already approved` |
+
+Policy unit tests: **21 cases**, all passing — including 10 gated intents and 8
+ordinary ones that must NOT be gated. Three real rule bugs were found and fixed
+by those tests:
+1. rule **precedence**: "grant access to the billing dashboard" matched *spend*
+   instead of *access change*, because the spend rule came first at equal risk.
+   Account-change now precedes spend.
+2. "rotate the **API** key" did not match `rotate the key` — the pattern now
+   allows up to two qualifier words.
+3. `\b(...\/etc\/)` can never match after a space, because `/` is a non-word
+   character. Removed the leading boundary.
+
+### Deployment hardening
+The VM no longer runs `nohup` stopgaps. `infra/systemd/` provides
+`operant-api.service` and `operant-worker.service`, both **active and enabled**
+(survive reboot), with `ProtectSystem=strict`, `NoNewPrivileges`, a bounded
+restart rate-limit, and `TimeoutStopSec=90` so the worker drains instead of being
+killed mid-turn. One self-inflicted config defect was caught from the journal:
+`StartLimitIntervalSec` belongs in `[Unit]`, not `[Service]`.
+
+**Lease TTL lowered 900 s → 180 s** (renewed every 45 s). A crashed or rebooted
+worker's job is now reclaimable in ~3 minutes instead of stalling for 15.
+
+### Note on the units' user
+The units run as `iamdarshg`, not a dedicated `operant` account, because the agent
+runtime reads `~/.dsh` (profile + credentials) which that account owns. Migrating
+that home to a service user is the correct next step and is not done yet.

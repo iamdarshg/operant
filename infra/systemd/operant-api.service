@@ -1,0 +1,42 @@
+[Unit]
+StartLimitIntervalSec=120
+StartLimitBurst=5
+Description=Operant control-plane API
+Documentation=https://github.com/../operant/docs/runbooks/portable-deploy.md
+After=network-online.target docker.service
+Wants=network-online.target
+# The API needs Postgres; it degrades health-checks rather than crash-looping if
+# the database is slow to appear, so this is soft ordering only.
+Requires=docker.service
+
+[Service]
+Type=simple
+User=iamdarshg
+Group=iamdarshg
+WorkingDirectory=/opt/operant-src/operant
+EnvironmentFile=/opt/operant-src/operant/.env
+# Node reads the env file itself so the same command works outside systemd too.
+ExecStart=/usr/bin/node --env-file=.env apps/api/dist/server.js
+Restart=always
+RestartSec=3
+# A tight restart loop usually means bad config; stop trying and let a human look.
+
+# Hardening. The API needs no privileges beyond its own tree.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/operant-src/operant/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=operant-api
+
+[Install]
+WantedBy=multi-user.target

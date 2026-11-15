@@ -152,7 +152,7 @@ export async function createTaskWithJob(
  * showing `queued` for the whole run, because the worker only learned the
  * session id after the child process had already spawned.
  */
-export async function claimNextJob(db: Db, workerId: string, leaseSeconds = 900): Promise<JobRow | null> {
+export async function claimNextJob(db: Db, workerId: string, leaseSeconds = 180): Promise<JobRow | null> {
   const rows = await db<JobRow[]>`
     WITH claimed AS (
       UPDATE jobs
@@ -181,8 +181,15 @@ export async function claimNextJob(db: Db, workerId: string, leaseSeconds = 900)
   return rows[0] ?? null;
 }
 
-/** Extend a lease while a long run is still producing events. */
-export async function renewLease(db: Db, jobId: string, workerId: string, leaseSeconds = 900): Promise<void> {
+/**
+ * Extend a lease while a long run is still producing events.
+ *
+ * The lease is deliberately short (180 s, renewed every 45 s by the worker) so a
+ * crashed or rebooted worker's job becomes reclaimable within ~3 minutes rather
+ * than after a 15-minute wait. The trade-off is more renew round-trips, which are
+ * trivial next to a model call.
+ */
+export async function renewLease(db: Db, jobId: string, workerId: string, leaseSeconds = 180): Promise<void> {
   await db`UPDATE jobs
              SET lease_expires_at = now() + (${leaseSeconds} || ' seconds')::interval, updated_at = now()
            WHERE id = ${jobId} AND lease_owner = ${workerId}`;
@@ -317,6 +324,113 @@ export async function cancelTask(db: Db, taskId: string, actor: string): Promise
              VALUES ('job.cancelled', ${actor}, ${taskId}, ${tx.json({ count: rows.length } as never)})`;
     return rows.length;
   }) as Promise<number>;
+}
+
+/* ------------------------------------------------------------------ *
+ * Approval gate
+ * ------------------------------------------------------------------ */
+
+/** The job that will be enqueued once a human approves. */
+export interface PendingJobSpec {
+  agentId: string;
+  prompt: string;
+  workspacePath: string;
+  permissionMode: string;
+  dshProfile: string;
+  title: string;
+}
+
+/**
+ * Create a task that must NOT run yet, plus the approval that releases it.
+ *
+ * No job row is created here on purpose: a queued job would be claimable by a
+ * worker and the gate would be decorative. The job only exists after approval.
+ */
+export async function createTaskAwaitingApproval(
+  db: Db,
+  task: NewTaskInput,
+  spec: PendingJobSpec,
+  approval: { summary: string; actionKind: string; risk: string; reasons: string[] },
+): Promise<{ task: TaskRow; approvalId: string }> {
+  return db.begin(async (tx) => {
+    const [t] = await tx<TaskRow[]>`
+      INSERT INTO tasks (intent, title, requested_by, origin, project_key, project_path,
+                         conversation_id, require_verification, status, progress_note)
+      VALUES (${task.intent}, ${task.title}, ${task.requestedBy}, ${task.origin},
+              ${task.projectKey ?? null}, ${task.projectPath ?? null},
+              ${task.conversationId ?? null}, ${task.requireVerification ?? false},
+              'waiting_approval', 'held for human approval before dispatch')
+      RETURNING *`;
+    if (!t) throw new Error('task insert returned no row');
+
+    const [a] = await tx<{ id: string }[]>`
+      INSERT INTO approvals (task_id, summary, action, risk, requested_by)
+      VALUES (${t.id}, ${approval.summary},
+              ${tx.json({ kind: approval.actionKind, payload: { ...spec, reasons: approval.reasons } } as never)},
+              ${approval.risk}, ${task.requestedBy})
+      RETURNING id`;
+    if (!a) throw new Error('approval insert returned no row');
+
+    await tx`INSERT INTO audit_log (action, actor, task_id, payload)
+             VALUES ('approval.requested', ${task.requestedBy}, ${t.id},
+                     ${tx.json({ approvalId: a.id, kind: approval.actionKind, risk: approval.risk } as never)})`;
+    return { task: t, approvalId: a.id };
+  }) as Promise<{ task: TaskRow; approvalId: string }>;
+}
+
+/**
+ * Resolve an approval and, on approval, enqueue the held job.
+ *
+ * Returns the resulting job id so the caller can stream it immediately. The
+ * whole thing is one transaction: an approval can never be marked approved
+ * without the job existing, and a job can never appear without the approval.
+ */
+export async function decideApproval(
+  db: Db,
+  approvalId: string,
+  decision: 'approve' | 'reject',
+  actor: string,
+  note?: string,
+): Promise<{ ok: false; reason: string } | { ok: true; taskId: string; jobId: string | null; status: string }> {
+  return db.begin(async (tx) => {
+    const [row] = await tx<
+      { id: string; task_id: string | null; status: string; action: { kind: string; payload: PendingJobSpec & { reasons?: string[] } } }[]
+    >`SELECT id, task_id, status, action FROM approvals WHERE id = ${approvalId} FOR UPDATE`;
+    if (!row) return { ok: false as const, reason: 'not_found' };
+    if (row.status !== 'pending') return { ok: false as const, reason: `already ${row.status}` };
+    if (!row.task_id) return { ok: false as const, reason: 'approval is not attached to a task' };
+
+    const status = decision === 'approve' ? 'approved' : 'rejected';
+    await tx`UPDATE approvals SET status = ${status}, decided_by = ${actor},
+                                  decision_note = ${note ?? null}, decided_at = now()
+              WHERE id = ${approvalId}`;
+
+    if (decision === 'reject') {
+      await tx`UPDATE tasks SET status = 'cancelled', failure_reason = ${`rejected by ${actor}`},
+                                 finished_at = now(), updated_at = now()
+                WHERE id = ${row.task_id} AND status NOT IN ('succeeded','failed','cancelled')`;
+      await tx`INSERT INTO audit_log (action, actor, task_id, payload)
+               VALUES ('approval.decided', ${actor}, ${row.task_id},
+                       ${tx.json({ approvalId, decision } as never)})`;
+      return { ok: true as const, taskId: row.task_id, jobId: null, status: 'cancelled' };
+    }
+
+    const spec = row.action.payload;
+    const [job] = await tx<{ id: string }[]>`
+      INSERT INTO jobs (task_id, kind, agent_id, title, prompt, workspace_path,
+                        permission_mode, max_attempts, dsh_profile)
+      VALUES (${row.task_id}, 'execute', ${spec.agentId}, ${spec.title}, ${spec.prompt},
+              ${spec.workspacePath}, ${spec.permissionMode}, 2, ${spec.dshProfile})
+      RETURNING id`;
+
+    await tx`UPDATE tasks SET status = 'queued', progress_note = ${`approved by ${actor}`},
+                               updated_at = now()
+              WHERE id = ${row.task_id}`;
+    await tx`INSERT INTO audit_log (action, actor, task_id, job_id, payload)
+             VALUES ('approval.decided', ${actor}, ${row.task_id}, ${job?.id ?? null},
+                     ${tx.json({ approvalId, decision } as never)})`;
+    return { ok: true as const, taskId: row.task_id, jobId: job?.id ?? null, status: 'queued' };
+  }) as Promise<{ ok: false; reason: string } | { ok: true; taskId: string; jobId: string | null; status: string }>;
 }
 
 /* ------------------------------------------------------------------ *

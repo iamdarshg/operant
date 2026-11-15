@@ -24,12 +24,14 @@ import {
   DecideApprovalInput,
   MemorySearchInput,
   TERMINAL_JOB_STATUSES,
-  TranscribeInput,
+  assessIntent,
 } from '@operant/core';
 import {
   cancelTask,
   createDb,
+  createTaskAwaitingApproval,
   createTaskWithJob,
+  decideApproval,
   getJob,
   getJobEvents,
   getJobsForTask,
@@ -136,6 +138,51 @@ app.post('/v1/requests', async (req, reply) => {
     conversationUuid = conv?.id ?? null;
   }
 
+  const prompt = buildPrompt(input.text, workspacePath, input.projectPath);
+  const jobSpec = {
+    agentId,
+    title: titleFrom(input.text),
+    prompt,
+    workspacePath,
+    permissionMode: 'workspace-write',
+    dshProfile: DSH_PROFILE,
+  };
+
+  // Consequential-action gate. If the intent touches money, credentials,
+  // destructive operations or external messaging, NOTHING is enqueued: the task
+  // is created in `waiting_approval` and a job row only comes into existence
+  // once a human approves it. A queued-but-gated job would be claimable by a
+  // worker and the gate would be decorative.
+  const risk = assessIntent(input.text);
+  if (risk.required) {
+    const { task, approvalId } = await createTaskAwaitingApproval(
+      db,
+      {
+        intent: input.text,
+        title: titleFrom(input.text),
+        requestedBy: input.requestedBy,
+        origin: input.origin,
+        projectPath: input.projectPath ?? null,
+        requireVerification: input.requireVerification ?? false,
+        conversationId: conversationUuid,
+      },
+      jobSpec,
+      { summary: risk.summary, actionKind: risk.kind, risk: risk.risk, reasons: risk.reasons },
+    );
+    req.log.info({ taskId: task.id, approvalId, risk: risk.risk, kind: risk.kind }, 'request held for approval');
+    return reply.code(202).send({
+      taskId: task.id,
+      jobId: null,
+      agentId,
+      status: task.status,
+      approvalRequired: true,
+      approvalId,
+      risk: risk.risk,
+      reasons: risk.reasons,
+      summary: risk.summary,
+    });
+  }
+
   const { task, job } = await createTaskWithJob(
     db,
     {
@@ -147,15 +194,7 @@ app.post('/v1/requests', async (req, reply) => {
       requireVerification: input.requireVerification ?? false,
       conversationId: conversationUuid,
     },
-    {
-      kind: 'execute',
-      agentId,
-      title: titleFrom(input.text),
-      prompt: buildPrompt(input.text, workspacePath, input.projectPath),
-      workspacePath,
-      permissionMode: 'workspace-write',
-      dshProfile: DSH_PROFILE,
-    },
+    { kind: 'execute', ...jobSpec },
   );
 
   req.log.info({ taskId: task.id, jobId: job.id, agentId }, 'request accepted');
@@ -355,16 +394,25 @@ app.post('/v1/approvals/:id/decide', async (req, reply) => {
   const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
   const parsed = DecideApprovalInput.safeParse(req.body);
   if (!parsed.success) return reply.code(400).send({ error: 'invalid_decision', issues: parsed.error.issues });
-  const status = parsed.data.decision === 'approve' ? 'approved' : 'rejected';
-  const rows = await db`
-    UPDATE approvals SET status = ${status}, decided_by = ${parsed.data.decidedBy},
-                         decision_note = ${parsed.data.note ?? null}, decided_at = now()
-     WHERE id = ${id} AND status = 'pending'
-    RETURNING *`;
-  if (rows.length === 0) return reply.code(409).send({ error: 'not_pending_or_missing' });
-  await db`INSERT INTO audit_log (action, actor, payload)
-           VALUES ('approval.decided', ${parsed.data.decidedBy}, ${db.json({ id, status } as never)})`;
-  return { approval: rows[0] };
+
+  // One transaction: the approval can never be marked approved without the job
+  // existing, and the job can never appear without the approval.
+  const result = await decideApproval(
+    db,
+    id,
+    parsed.data.decision,
+    parsed.data.decidedBy,
+    parsed.data.note,
+  );
+  if (!result.ok) return reply.code(409).send({ error: 'not_pending_or_missing', detail: result.reason });
+  return {
+    decided: true,
+    decision: parsed.data.decision,
+    taskId: result.taskId,
+    jobId: result.jobId,
+    status: result.status,
+    ...(result.jobId ? { streamUrl: `/v1/jobs/${result.jobId}/stream` } : {}),
+  };
 });
 
 /* --------------------------------------------------------------------- usage */

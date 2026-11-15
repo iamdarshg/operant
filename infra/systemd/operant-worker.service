@@ -1,0 +1,46 @@
+[Unit]
+StartLimitIntervalSec=180
+StartLimitBurst=5
+Description=Operant job worker (spawns DeepSeek Harness runs)
+After=network-online.target operant-api.service
+Wants=network-online.target
+# Soft: the worker reclaims jobs from the durable queue, so a late API start only
+# delays the first run — it never loses work.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=iamdarshg
+Group=iamdarshg
+WorkingDirectory=/opt/operant-src/operant
+EnvironmentFile=/opt/operant-src/operant/.env
+ExecStart=/usr/bin/node --env-file=.env apps/worker/dist/main.js
+Restart=always
+RestartSec=5
+
+# Drain in-flight runs on stop instead of killing them mid-turn. The worker
+# handles SIGTERM by claiming nothing new and letting the current job finish;
+# jobs still carry a lease, so even a hard kill is recoverable.
+KillSignal=SIGTERM
+TimeoutStopSec=90
+
+NoNewPrivileges=true
+PrivateTmp=true
+# The worker spawns `dsh`, which needs to read ~/.dsh (profile + credentials) and
+# write only inside the job workspace. ProtectHome must therefore be relaxed to
+# read-only rather than fully private.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/operant-src/operant/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=operant-worker
+
+[Install]
+WantedBy=multi-user.target
