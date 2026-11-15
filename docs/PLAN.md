@@ -1595,3 +1595,49 @@ Nothing I can think of for retries. The related gap is different: a job whose *w
 dies is reclaimed by lease expiry (verified last round), but a job that hangs while
 the worker stays alive is bounded only by `JOB_TIMEOUT_MS`, which I have not exercised
 by hanging one deliberately.
+
+---
+
+## 42. Round 33 — the hang timeout is still unverified, and I nearly reported a leak that did not exist
+
+Attempted to close the last named durability gap: a job that hangs while the worker
+stays alive, bounded by `JOB_TIMEOUT_MS`.
+
+### Attempt
+`JOB_TIMEOUT_MS` defaults to 20 minutes, so it was temporarily lowered to 60 s on the
+worker unit, a job was submitted that runs `sleep 300`, and the job was polled.
+
+### Result: inconclusive, and honestly so
+- No `timed out` line ever appeared in the worker log, across 180 s — three times the
+  configured budget.
+- The job's `attempt` did change 1 → 2 at exactly **180 s**, which is the *lease*
+  duration, not the timeout.
+- That transition coincides precisely with **my own `systemctl restart`** while
+  restoring the unit at the end of the script.
+
+So the most likely reading is: the timeout never fired, the run stayed alive, and my
+restart killed the worker; the lease then expired and the restarted worker reclaimed
+the job. The override, the timeout path, or both are implicated, and **I do not know
+which**. It is recorded as unverified rather than passed.
+
+### The leak I nearly reported
+`pgrep -fc 'dsh --profile'` returned **2**, and I started writing up orphaned agent
+processes surviving a SIGKILLed worker — a genuinely dangerous failure (duplicate
+execution with real side effects). Before reporting it I checked what those PIDs were:
+
+```
+pid=12138 cwd=/home/iamdarshg age=0s
+pid=12139 cwd=            age=s
+```
+
+They were **my own shell**, matched because the pattern string appears in its own
+command line, at age 0 seconds. A precise check (`ps -eo args | grep '^node .*dsh'`,
+plus the worker's own children) returns **0 orphans** and no children.
+
+### Why this belongs in the record
+This is the fourth time in this project that a measurement, not the system, was
+wrong — a Chrome window size that cropped pages, `systemctl` running on the wrong
+host, `scp` sending from the wrong directory, and now `pgrep` matching itself. The
+pattern is consistent: **before acting on a surprising measurement, measure the
+measurement.** On this evidence the failure mode that looks most alarming is also the
+easiest to fake.
