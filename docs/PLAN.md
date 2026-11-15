@@ -558,3 +558,61 @@ so the next person does not mistake the documentation for a claim of completenes
 4. `/approvals` has no auto-refresh; UTC timestamps carry no zone label.
 5. `fastify` / `next` advisories unpinned.
 6. The web app keeps duplicate wire types instead of importing `@operant/core`.
+
+---
+
+## 17. Round 8 — enforcement moved to the tool-call boundary
+
+The security review's sharpest finding was that the approval gate inspected the
+**request's prose**, so paraphrasing walked past it 11/11. The gate now also
+watches what the agent is about to *execute*, which no wording can disguise.
+
+### How it works
+
+1. `assessToolCall(tool, args)` in `packages/core/src/policy.ts` inspects every
+   tool call. It blocks: recursive/forced deletes (`rm -rf`, `Remove-Item
+   -Recurse`, `del /s`), filesystem/partition operations, `dd if=`, power control,
+   `DROP`/`TRUNCATE`, unqualified `DELETE FROM`, `chmod 777`, piping remote content
+   into a shell (`curl | bash`, `iwr | iex`), fork bombs, writes into `/etc`, and
+   anything touching `authorized_keys`/`.ssh`/`sudoers`.
+2. The adapter gained a `guardToolCall` hook. On a block it **kills the child
+   immediately** and records the exact call, so the action never completes.
+3. The worker escalates: job → `interrupted`, task → `waiting_approval`, and an
+   approval is created by `tool-boundary-guard` carrying the exact command.
+4. Approving it creates a **new job** whose `approved_commands` holds that one
+   command string. The guard permits only an **exact match**, so approval cannot be
+   widened into "run anything containing this".
+
+### Verified live, end to end
+
+Request: *"create settings.ini … then fix its permissions by running chmod 777"* —
+wording that deliberately passes the prose gate.
+
+| Step | Observed |
+|---|---|
+| Prose gate | passed (job enqueued) |
+| Agent's tool calls | `write` (allowed), then `bash` with `chmod 777 config.ini` |
+| Guard | **blocked**, child killed, job `interrupted`, error `blocked at the tool boundary: make world-writable (bash)` |
+| Approval | created by `tool-boundary-guard`, risk `high`, payload carries the exact command |
+| Approve | new job created, `approved_commands` = that exact command |
+| Re-run | job **`succeeded`** — permitted, and `config.ini` really became `mode=777` |
+| Task | `succeeded` |
+
+### One more bug the loop exposed
+
+The task reported `failed` even after the approved retry succeeded, because the
+policy-blocked attempt counted as a failure in the roll-up. A blocked attempt is a
+**pending human decision, not a task failure**, so `finalizeJob` now excludes
+`error LIKE 'blocked at the tool boundary%'` from the failure count.
+
+### What this does and does not fix
+
+It closes the *"rewording defeats the gate"* class for actions the agent performs
+through tools: enforcement no longer depends on the prompt. It does **not**
+retroactively stop a command that already executed before the guard saw it, and
+`allowed_tools` per agent is still documentation rather than enforcement.
+
+Also observed while testing, worth recording: the agent runs in a sandboxed
+namespace where the host's `/tmp` is invisible, so an instruction to delete a host
+path caused it to report "the target does not exist" rather than deleting
+something. Defence in depth from the sandbox, not from my policy.

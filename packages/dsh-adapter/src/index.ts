@@ -68,6 +68,13 @@ export interface RunOptions {
   onEvent?: ((event: NormalizedEvent) => void) | undefined;
   /** Called on each parsed raw event, before normalization (for tests). */
   onRaw?: ((raw: Record<string, unknown>) => void) | undefined;
+  /**
+   * Tool-call boundary guard. Called for every `tool_call` the runner emits.
+   * Returning `{block:true}` kills the child immediately and records why, so a
+   * consequential action escalates to a human instead of relying on how the
+   * request happened to be worded.
+   */
+  guardToolCall?: ((tool: string, args: unknown) => { block: boolean; reason?: string }) | undefined;
 }
 
 export interface RunResult {
@@ -85,6 +92,8 @@ export interface RunResult {
   timedOut: boolean;
   cancelled: boolean;
   eventCount: number;
+  /** Set when the tool-call guard stopped the run. Null on a normal finish. */
+  blockedByPolicy: { tool: string; args: unknown; reason: string } | null;
 }
 
 const PROFILE_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -211,7 +220,8 @@ export function normalize(raw: Record<string, unknown>, seq: number): Normalized
  * as an invalid profile name throws, so a caller can always finalize the job.
  */
 export async function runDshJob(options: RunOptions): Promise<RunResult> {
-  const { profile, prompt, cwd, permissionMode, sessionId, timeoutMs, signal, onEvent, onRaw } = options;
+  const { profile, prompt, cwd, permissionMode, sessionId, timeoutMs, signal, onEvent, onRaw, guardToolCall } =
+    options;
 
   if (!PROFILE_RE.test(profile)) {
     throw new Error(`invalid dsh profile name: ${JSON.stringify(profile)}`);
@@ -242,6 +252,7 @@ export async function runDshJob(options: RunOptions): Promise<RunResult> {
   let stderr = '';
   let timedOut = false;
   let cancelled = false;
+  let blockedByPolicy: RunResult['blockedByPolicy'] = null;
 
   const emit = (e: NormalizedEvent | null): void => {
     if (!e) return;
@@ -286,7 +297,25 @@ export async function runDshJob(options: RunOptions): Promise<RunResult> {
           reasonError = err ? String(err['message'] ?? '') : null;
         }
       }
-      if (t === 'tool_call') emit({ seq: seq++, type: 'job.log', payload: { level: 'debug', message: `tool ${String(raw['tool'])}` } });
+      if (t === 'tool_call') {
+        const tool = String(raw['tool'] ?? 'unknown');
+        const args = raw['input'] ?? raw['args'] ?? {};
+        // Tool-call boundary: the enforcement point that does not depend on how
+        // the request was phrased. A violation stops the run immediately.
+        if (guardToolCall) {
+          const verdict = guardToolCall(tool, args);
+          if (verdict.block) {
+            blockedByPolicy = { tool, args, reason: verdict.reason ?? 'blocked by policy' };
+            emit({
+              seq: seq++,
+              type: 'job.log',
+              payload: { level: 'error', message: `BLOCKED tool call ${tool}: ${blockedByPolicy.reason}` },
+            });
+            child.kill();
+          }
+        }
+        emit({ seq: seq++, type: 'job.log', payload: { level: 'debug', message: `tool ${tool}` } });
+      }
       const norm = normalize(raw, seq++);
       // `job.text` for thinking/final is handled above; still persist them.
       emit(norm);
@@ -343,7 +372,7 @@ export async function runDshJob(options: RunOptions): Promise<RunResult> {
     }
   }
 
-  const ok = reasonKind === 'completed' && exitCode === 0 && !timedOut && !cancelled;
+  const ok = reasonKind === 'completed' && exitCode === 0 && !timedOut && !cancelled && !blockedByPolicy;
 
   if (stderr.trim().length > 0 && !ok) {
     emit({
@@ -365,6 +394,7 @@ export async function runDshJob(options: RunOptions): Promise<RunResult> {
     timedOut,
     cancelled,
     eventCount,
+    blockedByPolicy,
   };
 }
 

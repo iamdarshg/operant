@@ -19,9 +19,11 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { runDshJob, type NormalizedEvent } from '@operant/dsh-adapter';
+import { assessToolCall } from '@operant/core';
 import {
   appendJobEvents,
   claimNextJob,
+  createApprovalForBlockedJob,
   createDb,
   finalizeJob,
   getTask,
@@ -141,6 +143,21 @@ async function executeJob(job: JobRow): Promise<void> {
       timeoutMs: JOB_TIMEOUT_MS,
       signal: controller.signal,
       onEvent: (event) => buffer.push(event),
+      // Tool-call boundary. This is the enforcement layer that does not depend
+      // on how the request was phrased: if the agent is about to run something
+      // consequential, it stops here and a human decides.
+      guardToolCall: (tool, toolArgs) => {
+        // A human may have approved ONE exact command for this job. Permitting
+        // only an exact match (not a substring) keeps the approval narrow: it
+        // cannot be widened into "run anything that contains this string".
+        const approved = Array.isArray(job.approved_commands) ? (job.approved_commands as unknown[]) : [];
+        const candidate = (toolArgs as { command?: unknown } | null)?.command;
+        if (approved.length > 0 && typeof candidate === 'string' && approved.includes(candidate)) {
+          return { block: false };
+        }
+        const verdict = assessToolCall(tool, toolArgs);
+        return verdict.block ? { block: true, reason: verdict.reason } : { block: false };
+      },
     });
   } finally {
     clearInterval(renew);
@@ -174,6 +191,42 @@ async function executeJob(job: JobRow): Promise<void> {
   if (result.cancelled) {
     await finalizeJob(db, job.id, { status: 'cancelled', error: 'cancelled by operator', usage, sessionId: result.sessionId });
     log('job cancelled', { jobId: job.id });
+    return;
+  }
+
+  // The tool-call guard stopped the run. Do not retry — retrying would hit the
+  // same rule. Escalate: the task waits for a human, and approving it launches a
+  // fresh job that is explicitly permitted to run the approved command.
+  if (result.blockedByPolicy) {
+    const verdict = assessToolCall(result.blockedByPolicy.tool, result.blockedByPolicy.args);
+    const approvedPrompt = [
+      `The operator approved this exact command for this task: ${JSON.stringify(result.blockedByPolicy.args).slice(0, 800)}`,
+      `(It was blocked by policy: ${result.blockedByPolicy.reason}.)`,
+      '',
+      prompt,
+    ].join('\n');
+    const { approvalId } = await createApprovalForBlockedJob(db, {
+      taskId: job.task_id,
+      jobId: job.id,
+      tool: result.blockedByPolicy.tool,
+      toolArgs: result.blockedByPolicy.args,
+      reason: result.blockedByPolicy.reason,
+      risk: verdict.risk,
+      kind: verdict.kind,
+      spec: {
+        agentId: job.agent_id,
+        title: job.title,
+        prompt: approvedPrompt,
+        workspacePath: job.workspace_path,
+        permissionMode,
+        dshProfile: job.dsh_profile,
+      },
+    });
+    log('tool call blocked; awaiting approval', {
+      jobId: job.id,
+      tool: result.blockedByPolicy.tool,
+      approvalId,
+    });
     return;
   }
 

@@ -104,6 +104,7 @@ export interface JobRow {
   usage: unknown;
   lease_owner: string | null;
   lease_expires_at: Date | null;
+  approved_commands: unknown;
   created_at: Date;
   started_at: Date | null;
   finished_at: Date | null;
@@ -259,7 +260,13 @@ export async function finalizeJob(db: Db, jobId: string, input: FinalizeInput): 
     const [agg] = await tx<{ total: number; succeeded: number; failed: number; open: number }[]>`
       SELECT count(*)::int AS total,
              count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
-             count(*) FILTER (WHERE status IN ('failed','cancelled','interrupted'))::int AS failed,
+             count(*) FILTER (
+               WHERE status IN ('failed','cancelled','interrupted')
+                 -- A policy-blocked attempt is a pending human decision, not a
+                 -- task failure. Counting it made the task read "failed" even
+                 -- after the approved retry succeeded.
+                 AND coalesce(error,'') NOT LIKE 'blocked at the tool boundary%'
+             )::int AS failed,
              count(*) FILTER (WHERE status IN ('queued','dispatched','running','waiting_approval'))::int AS open
         FROM jobs WHERE task_id = ${taskId.task_id}`;
     if (!agg) return;
@@ -416,11 +423,16 @@ export async function decideApproval(
     }
 
     const spec = row.action.payload;
+    // If this approval came from the tool-boundary guard, the human approved one
+    // exact command; carry it onto the new job so the guard permits precisely
+    // that command and nothing else.
+    const approvedCommand = (spec as { blocked?: { args?: { command?: string } } }).blocked?.args?.command;
     const [job] = await tx<{ id: string }[]>`
       INSERT INTO jobs (task_id, kind, agent_id, title, prompt, workspace_path,
-                        permission_mode, max_attempts, dsh_profile)
+                        permission_mode, max_attempts, dsh_profile, approved_commands)
       VALUES (${row.task_id}, 'execute', ${spec.agentId}, ${spec.title}, ${spec.prompt},
-              ${spec.workspacePath}, ${spec.permissionMode}, 2, ${spec.dshProfile})
+              ${spec.workspacePath}, ${spec.permissionMode}, 2, ${spec.dshProfile},
+              ${tx.json((approvedCommand ? [approvedCommand] : []) as never)})
       RETURNING id`;
 
     await tx`UPDATE tasks SET status = 'queued', progress_note = ${`approved by ${actor}`},
@@ -431,6 +443,62 @@ export async function decideApproval(
                      ${tx.json({ approvalId, decision } as never)})`;
     return { ok: true as const, taskId: row.task_id, jobId: job?.id ?? null, status: 'queued' };
   }) as Promise<{ ok: false; reason: string } | { ok: true; taskId: string; jobId: string | null; status: string }>;
+}
+
+/**
+ * Escalate a job that the tool-call guard stopped.
+ *
+ * The run is already killed; this records *why*, holds the task in
+ * `waiting_approval`, and stores a job spec so approving it launches a fresh job
+ * that is explicitly permitted to run the approved command. Without the stored
+ * spec, "approve" would have nothing to resume and the decision would be
+ * decorative.
+ */
+export async function createApprovalForBlockedJob(
+  db: Db,
+  args: {
+    taskId: string;
+    jobId: string;
+    tool: string;
+    toolArgs: unknown;
+    reason: string;
+    risk: string;
+    kind: string;
+    spec: PendingJobSpec;
+  },
+): Promise<{ approvalId: string }> {
+  return db.begin(async (tx) => {
+    await tx`UPDATE jobs
+                SET status = 'interrupted',
+                    error = ${`blocked at the tool boundary: ${args.reason} (${args.tool})`},
+                    lease_owner = NULL, lease_expires_at = NULL,
+                    finished_at = now(), updated_at = now()
+              WHERE id = ${args.jobId}`;
+    await tx`UPDATE tasks
+                SET status = 'waiting_approval',
+                    progress_note = ${`a tool call was blocked: ${args.reason}`},
+                    updated_at = now()
+              WHERE id = ${args.taskId}`;
+    const [a] = await tx<{ id: string }[]>`
+      INSERT INTO approvals (task_id, job_id, summary, action, risk, requested_by)
+      VALUES (${args.taskId}, ${args.jobId},
+              ${`The agent tried to run ${args.tool}, blocked because it is a ${args.reason}.`},
+              ${tx.json({
+                kind: args.kind,
+                payload: {
+                  ...args.spec,
+                  blocked: { tool: args.tool, args: args.toolArgs, reason: args.reason },
+                },
+              } as never)},
+              ${args.risk},
+              'tool-boundary-guard')
+      RETURNING id`;
+    if (!a) throw new Error('approval insert returned no row');
+    await tx`INSERT INTO audit_log (action, actor, task_id, job_id, payload)
+             VALUES ('approval.requested', 'tool-boundary-guard', ${args.taskId}, ${args.jobId},
+                     ${tx.json({ approvalId: a.id, tool: args.tool, reason: args.reason } as never)})`;
+    return { approvalId: a.id };
+  }) as Promise<{ approvalId: string }>;
 }
 
 /* ------------------------------------------------------------------ *
@@ -567,3 +635,4 @@ export async function usageSummary(db: Db) {
       FROM usage_events`;
   return row ?? { prompt_tokens: 0, completion_tokens: 0, jobs: 0 };
 }
+

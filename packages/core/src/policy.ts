@@ -135,3 +135,92 @@ export function assessIntent(text: string): RiskAssessment {
 export function requiresApproval(text: string): boolean {
   return assessIntent(text).required;
 }
+
+/* ------------------------------------------------------------------ *
+ * Tool-call boundary
+ * ------------------------------------------------------------------ */
+
+export interface ToolCallAssessment {
+  block: boolean;
+  risk: RiskLevel;
+  kind: ApprovalActionKind;
+  reason: string;
+}
+
+/**
+ * Commands that must never run unattended, regardless of how the request was
+ * phrased. This is the layer that fixes the finding "the gate inspects prose, so
+ * paraphrasing walks past it": here we look at the command the agent is about to
+ * execute, which no amount of creative wording changes.
+ */
+const SHELL_DENY: { re: RegExp; reason: string; risk: RiskLevel; kind: ApprovalActionKind }[] = [
+  { re: /\brm\s+(-[a-z]*[rf][a-z]*\s+)+/i, reason: 'recursive or forced delete', risk: 'critical', kind: 'destructive' },
+  { re: /\b(rm|rmdir)\s+-[a-z]*r[a-z]*\s+\/(\s|$)/i, reason: 'delete from filesystem root', risk: 'critical', kind: 'destructive' },
+  { re: /\b(del|erase)\s+.*\/s/i, reason: 'recursive delete (Windows)', risk: 'critical', kind: 'destructive' },
+  { re: /\bRemove-Item\b[^\n]*-Recurse/i, reason: 'recursive delete (PowerShell)', risk: 'critical', kind: 'destructive' },
+  { re: /\b(mkfs|fdisk|parted|format)\b/i, reason: 'filesystem or partition operation', risk: 'critical', kind: 'destructive' },
+  { re: /\bdd\s+if=/i, reason: 'raw device write', risk: 'critical', kind: 'destructive' },
+  { re: /\b(shutdown|reboot|halt|poweroff)\b/i, reason: 'host power control', risk: 'high', kind: 'destructive' },
+  { re: /\b(DROP|TRUNCATE)\s+(TABLE|DATABASE|SCHEMA)\b/i, reason: 'destructive SQL', risk: 'critical', kind: 'destructive' },
+  { re: /\bDELETE\s+FROM\s+\w+\s*(;|$)/i, reason: 'unqualified DELETE (no WHERE clause)', risk: 'high', kind: 'destructive' },
+  { re: /\bchmod\s+(-R\s+)?777\b/i, reason: 'make world-writable', risk: 'high', kind: 'production_config' },
+  { re: /\b(curl|wget)\b[^\n|]*\|\s*(ba)?sh/i, reason: 'pipe remote content into a shell', risk: 'critical', kind: 'shell_command' },
+  { re: /\b(iwr|Invoke-WebRequest)\b[^\n|]*\|\s*iex/i, reason: 'execute remote content (PowerShell)', risk: 'critical', kind: 'shell_command' },
+  { re: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, reason: 'fork bomb', risk: 'critical', kind: 'destructive' },
+  // No leading \b: `>` is a non-word character, so \b(>>?|tee) can never match
+// after a space. This exact trap already bit the file-write rule once.
+  { re: /(>>?|tee)\s*\/etc\//i, reason: 'write into /etc', risk: 'high', kind: 'file_write_outside_workspace' },
+  { re: /authorized_keys|\.ssh\/|shadow\b|sudoers/i, reason: 'credential or privilege file', risk: 'critical', kind: 'account_change' },
+];
+
+/** Tool names that only mutate the workspace and need no boundary check. */
+const READONLY_TOOLS = new Set(['read', 'glob', 'grep', 'web_search', 'web_fetch', 'todo_write', 'list_agents']);
+
+/**
+ * Assess one tool call the agent is about to make / has just made.
+ *
+ * @param tool tool name as the runtime reports it
+ * @param args the tool arguments
+ * @returns whether the worker must stop the run and escalate to a human
+ */
+export function assessToolCall(tool: string, args: unknown): ToolCallAssessment {
+  const name = tool.toLowerCase();
+  const serialized = safeStringify(args);
+
+  // Reviewers and read-only tooling are exempt: they cannot mutate anything.
+  if (READONLY_TOOLS.has(name)) {
+    return { block: false, risk: 'low', kind: 'shell_command', reason: 'read-only tool' };
+  }
+
+  for (const rule of SHELL_DENY) {
+    if (rule.re.test(serialized)) {
+      return { block: true, risk: rule.risk, kind: rule.kind, reason: rule.reason };
+    }
+  }
+
+  // Writes that escape the workspace: the sandbox should stop these, but if the
+  // permission mode were relaxed the policy still refuses to do it unasked.
+  const writeish = /\b(write|edit|create|append|save|move|copy)\b/i.test(name) || /(write|edit|patch)/.test(name);
+  const outside = /(\/etc\/|\/usr\/|\/var\/|\/root\/|system32|\.ssh\/|\.aws\/|\.dsh\/|authorized_keys)/i.test(serialized);
+  if (writeish && outside) {
+    return { block: true, risk: 'high', kind: 'file_write_outside_workspace', reason: 'write outside the job workspace' };
+  }
+
+  return { block: false, risk: 'low', kind: 'shell_command', reason: 'no policy rule triggered' };
+}
+
+/** JSON.stringify that never throws on cycles. */
+function safeStringify(value: unknown): string {
+  try {
+    const seen = new WeakSet<object>();
+    return JSON.stringify(value, (_k, v: unknown) => {
+      if (typeof v === 'object' && v !== null) {
+        if (seen.has(v as object)) return '[circular]';
+        seen.add(v as object);
+      }
+      return v;
+    }) ?? '';
+  } catch {
+    return String(value);
+  }
+}
