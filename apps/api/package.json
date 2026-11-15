@@ -19,7 +19,6 @@
   "dependencies": {
     "@fastify/multipart": "9.0.3",
     "@fastify/cookie": "11.0.2",
-    "@operant/memory": "workspace:*",
     "@fastify/cors": "10.0.2",
     "postgres": "3.4.5",
     "@operant/db": "workspace:*",
@@ -37,6 +36,7 @@
     "@types/node": "22.10.2"
   }
 }
+
 
 
 

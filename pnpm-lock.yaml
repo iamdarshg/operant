@@ -41,9 +41,6 @@ importers:
       '@operant/learning':
         specifier: workspace:*
         version: link:../../packages/learning
-      '@operant/memory':
-        specifier: workspace:*
-        version: link:../../packages/memory
       drizzle-orm:
         specifier: 0.38.3
         version: 0.38.3(@types/react@19.0.2)(postgres@3.4.5)(react@19.0.0)
@@ -103,9 +100,6 @@ importers:
       '@operant/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@operant/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
       next:
         specifier: 15.5.28
         version: 15.5.28(@types/node@22.10.2)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
@@ -158,9 +152,6 @@ importers:
       '@operant/learning':
         specifier: workspace:*
         version: link:../../packages/learning
-      '@operant/memory':
-        specifier: workspace:*
-        version: link:../../packages/memory
       drizzle-orm:
         specifier: 0.38.3
         version: 0.38.3(@types/react@19.0.2)(postgres@3.4.5)(react@19.0.0)
@@ -214,27 +205,6 @@ importers:
       '@operant/db':
         specifier: workspace:*
         version: link:../db
-      '@operant/memory':
-        specifier: workspace:*
-        version: link:../memory
-
-  packages/memory:
-    dependencies:
-      '@operant/core':
-        specifier: workspace:*
-        version: link:../core
-      '@operant/db':
-        specifier: workspace:*
-        version: link:../db
-
-  packages/ui:
-    dependencies:
-      '@operant/core':
-        specifier: workspace:*
-        version: link:../core
-      react:
-        specifier: ^19.0.0
-        version: 19.0.0
 
   packages/web-search-ddg:
     dependencies:

@@ -17,8 +17,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@operant/memory": "workspace:*",
     "@operant/db": "workspace:*",
     "@operant/core": "workspace:*"
   }
 }
+

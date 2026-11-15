@@ -1780,3 +1780,44 @@ So "wired into BOTH cloud and local DSH" is currently true of the wiring and fal
 the local upstream. Starting it is one command (`docker compose --profile voice up -d`)
 and is documented in the runbook; I did not start Docker Desktop on the user's machine
 without being asked.
+
+---
+
+## 46. Round 37 — three packages that were only names
+
+`packages/ui` had no tests because it had **no code**: the entire package was
+`package.json` and `tsconfig.json`, and `apps/web` declared it as a dependency while
+importing nothing from it.
+
+Sweeping the workspace for the same shape found another:
+
+| Package | Source files | Used by |
+|---|---|---|
+| `packages/ui` | 0 | declared in `apps/web`, imported nowhere |
+| `packages/memory` | 0 | declared in `api`, `worker`, `learning`, imported nowhere |
+| `packages/mcp-client` | 0 | removed two rounds ago |
+
+Three of seven packages were placeholders. A dependency graph is a claim about
+architecture, and these made the platform look like it had a memory service, a
+component library and an MCP client when it had three empty folders. That is the same
+failure as the dead `schedules` and `artifacts` tables — a name doing the work of an
+implementation — and it is the last of that pattern I can find.
+
+### Removed
+`packages/memory`, `packages/ui`, and their `workspace:*` references in `apps/api`,
+`apps/web`, `apps/worker` and `packages/learning`. `packages/mcp-client` was already
+removed locally but its directory was still on the host; it is gone there now too.
+
+### Verified after removal
+- Whole workspace builds: core, db, learning, dsh-adapter, api, worker, bot.
+- Tests unchanged and green: core **92**, learning **24**, dsh-adapter **14**, web **38**;
+  db **8 skipped** locally (no test database — the suite skips loudly by design).
+- Deployed host rebuilt and restarted: `api=active worker=active guard=active`,
+  health `healthy`, `/v1/tasks` **200**, handler output unchanged.
+- Remaining packages: core, db, dsh-adapter, learning, web-search-ddg — every one of
+  them with real source.
+
+### Why this mattered more than it looks
+Nothing broke, because nothing used them. But "has a memory package" and "has a UI
+package" are exactly the claims an evaluator would check by looking at the tree, and
+they were false. Deleting them makes the tree honest: five packages, all real.
