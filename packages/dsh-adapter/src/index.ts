@@ -374,13 +374,49 @@ function shellQuote(token: string): string {
 }
 
 /**
- * Environment for the child. Credentials are inherited deliberately (the model
- * route needs them) but anything that could make the agent behave differently
- * by accident is stripped.
+ * Environment handed to the agent child process.
+ *
+ * SECURITY (independent review finding H2): this used to be `{...process.env}`,
+ * which handed the agent `OPERANT_BOT_TOKEN` and `DATABASE_URL`. A single prompt
+ * injection then escalates from "the agent misbehaves" to "the agent holds the
+ * control-plane bearer and the database password".
+ *
+ * The child gets an allow-list: what an OS process needs to run, plus the model
+ * provider keys it legitimately uses. Everything else — control-plane token,
+ * database URL, cloud credentials — is withheld, and a deny-list is applied last
+ * as a belt-and-braces guard against a future allow-list mistake.
  */
-function safeEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  delete env['NODE_OPTIONS'];
-  delete env['DSH_DEBUG'];
+const ENV_ALLOW = [
+  // Process basics (Windows and POSIX).
+  'PATH', 'Path', 'PATHEXT', 'SystemRoot', 'SystemDrive', 'windir', 'ComSpec',
+  'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA',
+  'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'TZ', 'TERM', 'SHELL',
+  // Node/runtime.
+  'NODE_ENV', 'NODE_PATH',
+  // DSH locates its own home through these; they are not secrets.
+  'DSH_HOME', 'DSH_PROFILE',
+  // Model provider credentials the agent legitimately needs.
+  'SURPLUS_API_KEY', 'ANTSEED_API_KEY', 'DEEPSEEK_API_KEY',
+] as const;
+
+/** Never forwarded, even if an allow-list entry above is added by mistake. */
+const ENV_DENY = [
+  'OPERANT_BOT_TOKEN',
+  'OPERANT_SESSION_SECRET',
+  'DATABASE_URL',
+  'REDIS_URL',
+  'DISCORD_BOT_TOKEN',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+] as const;
+
+export function safeEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ENV_ALLOW) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  for (const key of ENV_DENY) delete env[key];
   return env;
 }

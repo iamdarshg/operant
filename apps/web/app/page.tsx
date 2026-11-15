@@ -26,8 +26,27 @@ export default async function ControlPage() {
 
   // The tape follows the newest task the fleet is still working, and falls back
   // to the newest task on record so the screen never shows an empty player.
+  //
+  // But a task HELD FOR APPROVAL is non-terminal and has no job at all, so
+  // picking purely by "newest non-terminal" pointed the tape at a jobless task
+  // and printed "No job exists yet" while other jobs were streaming (QA finding).
+  // If the first candidate has no jobs, walk the newest few until one does.
   const openTask = tasks.find((task) => !isTerminalTask(task.status)) ?? tasks[0];
-  const detail = openTask ? await api.task(openTask.id) : null;
+  let detail = openTask ? await api.task(openTask.id) : null;
+  // Track which task the tape actually ended up on, so the caption link below
+  // cannot point at a different task than the events it is showing.
+  let tapeTask = openTask;
+  if (detail?.ok && detail.data.jobs.length === 0) {
+    for (const candidate of tasks.slice(0, 6)) {
+      if (candidate.id === openTask?.id) continue;
+      const probe = await api.task(candidate.id);
+      if (probe.ok && probe.data.jobs.length > 0) {
+        detail = probe;
+        tapeTask = candidate;
+        break;
+      }
+    }
+  }
   const jobs = detail?.ok ? detail.data.jobs : [];
   const focusJob = jobs.find((job) => !isTerminalJob(job.status)) ?? jobs[jobs.length - 1];
   const events = focusJob ? await api.events(focusJob.id, -1) : null;
@@ -171,9 +190,9 @@ export default async function ControlPage() {
                   limit={16}
                   showResult={false}
                 />
-                {openTask ? (
+                {tapeTask ? (
                   <p className="label">
-                    Part of <Link href={`/tasks/${openTask.id}`}>{openTask.title}</Link>
+                    Part of <Link href={`/tasks/${tapeTask.id}`}>{tapeTask.title}</Link>
                   </p>
                 ) : null}
               </>

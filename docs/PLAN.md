@@ -493,3 +493,68 @@ mouse and keyboard), memory search/zero-state/write, the tape really streams
 (seq 84→128 in 24 s over SSE), cancel absent on terminal tasks, 38 tab stops all
 ringed, skip link, landmarks, `role="log"`, no horizontal overflow at
 1440/768/390, proxy whitelist 404s unproxied paths.
+
+---
+
+## 16. Round 7 — security hardening that actually closes findings
+
+### H2 (agent inherits control-plane credentials) — FIXED
+
+`safeEnv()` was `{...process.env}`, so every agent child received
+`OPERANT_BOT_TOKEN` and `DATABASE_URL`. A prompt injection therefore escalated
+from "the agent misbehaves" to "the agent holds the control-plane bearer and the
+database password".
+
+It is now an **allow-list** (OS essentials, `NODE_ENV`, DSH home hints, and only
+the model-provider keys the agent legitimately needs) plus an explicit
+**deny-list applied last** as a guard against a future allow-list mistake.
+Verified by three new tests (14/14 in the adapter suite): the bearer, database
+URL, session secret, Discord token and cloud credentials are all withheld, while
+`PATH`, `HOME` and the provider key still pass through.
+
+### H4 (no auth rate limiting) — FIXED
+
+An independent probe sent 120 wrong-token requests and got 120×401, zero 429.
+
+Now: 20 failures per IP inside a 5-minute window, then `429` with `retry-after`.
+Crucially the credential is checked **first** — throttling before authentication
+would let an attacker lock the operator out of their own control plane, which is
+a worse failure than the brute force it prevents.
+
+Verified: 20×`401` then `429` (`retry-after: 300`), and a **valid token still
+returns 200 while that IP is throttled**.
+
+### HIGH (tape showed a jobless task) — FIXED
+
+The control screen picked "newest non-terminal task". A task **held for approval**
+is non-terminal and has no job at all, so the tape printed "No job exists yet"
+while other jobs were streaming.
+
+It now walks the newest tasks until it finds one that actually has a job, and
+tracks which task it settled on so the caption link cannot point somewhere else.
+Verified with a held approval deliberately created as the newest task: the page
+contains no "No job exists yet", the tape caption names a real job, and the tape
+shows a workspace path.
+
+### Added: `docs/OPERATIONS.md`
+
+The three things an operator needs and should not have to reverse-engineer:
+the **secrets checklist** (exactly five manual items, and what breaks without
+each), **recovery and rollback** (stuck jobs and leases, approval rollback,
+volume backup/restore, bad-release rollback, cloud cost emergency), and **how to
+add a new agent or tool** (agents are rows, not code; tools are an MCP row or a
+native plugin, with the verification step spelled out).
+
+It also carries a blunt "known gaps you should not discover the hard way" section
+so the next person does not mistake the documentation for a claim of completeness.
+
+### Still open (unchanged, and architectural rather than cosmetic)
+
+1. **The approval gate inspects prose, not actions** — bypassed 11/11 by
+   paraphrase. Tool-call-boundary gating is the real fix.
+2. `allowed_tools` is documentation, not enforcement: no tool-level authorization.
+3. VoiceStudio `/mcp` remains unauthenticated (upstream design), mitigated only by
+   loopback binding + IAP.
+4. `/approvals` has no auto-refresh; UTC timestamps carry no zone label.
+5. `fastify` / `next` advisories unpinned.
+6. The web app keeps duplicate wire types instead of importing `@operant/core`.

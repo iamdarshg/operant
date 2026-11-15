@@ -106,14 +106,66 @@ function authorized(header: string | undefined): boolean {
   return diff === 0;
 }
 
+/**
+ * Auth-failure throttle.
+ *
+ * The independent review found no rate limiting at all: 120 wrong-token requests
+ * produced 120×401 and zero 429. A bearer-only surface with unlimited attempts is
+ * an offline-bruteforce invitation.
+ *
+ * In-memory and per-process on purpose: this is a single-instance control plane,
+ * and a shared store would add a dependency just to protect one hook. The window
+ * is short because the goal is to stop scripted guessing, not to punish one
+ * mistyped token.
+ */
+const AUTH_WINDOW_MS = 5 * 60_000;
+const AUTH_MAX_FAILURES = 20;
+const authFailures = new Map<string, { count: number; resetAt: number }>();
+
+function authThrottle(ip: string): { blocked: boolean; retryAfterSec: number } {
+  const now = Date.now();
+  const entry = authFailures.get(ip);
+  if (!entry || entry.resetAt <= now) return { blocked: false, retryAfterSec: 0 };
+  if (entry.count < AUTH_MAX_FAILURES) return { blocked: false, retryAfterSec: 0 };
+  return { blocked: true, retryAfterSec: Math.max(1, Math.ceil((entry.resetAt - now) / 1000)) };
+}
+
+function noteAuthFailure(ip: string): void {
+  const now = Date.now();
+  const entry = authFailures.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    authFailures.set(ip, { count: 1, resetAt: now + AUTH_WINDOW_MS });
+  } else {
+    entry.count += 1;
+  }
+  // Bound the map so a flood of distinct IPs cannot grow memory without limit.
+  if (authFailures.size > 5000) {
+    for (const [key, value] of authFailures) {
+      if (value.resetAt <= now) authFailures.delete(key);
+    }
+  }
+}
+
 app.addHook('onRequest', async (req, reply) => {
   // Health is unauthenticated on purpose so a supervisor can probe liveness
   // without holding a credential. It exposes no work product.
   if (req.url === '/v1/health' || req.url.startsWith('/v1/health?')) return;
-  if (!authorized(req.headers.authorization)) {
-    req.log.warn({ url: req.url, ip: req.ip }, 'unauthorized request');
-    return reply.code(401).send({ error: 'unauthorized' });
+
+  // Check the credential FIRST. Throttling before authentication would let an
+  // attacker lock the operator out of their own control plane for the whole
+  // window, which is a worse failure than the brute-force it prevents.
+  if (authorized(req.headers.authorization)) return;
+
+  const gate = authThrottle(req.ip);
+  if (gate.blocked) {
+    req.log.warn({ url: req.url, ip: req.ip }, 'auth failures exceeded; throttling');
+    reply.header('retry-after', String(gate.retryAfterSec));
+    return reply.code(429).send({ error: 'too_many_auth_failures', retryAfterSec: gate.retryAfterSec });
   }
+
+  noteAuthFailure(req.ip);
+  req.log.warn({ url: req.url, ip: req.ip }, 'unauthorized request');
+  return reply.code(401).send({ error: 'unauthorized' });
 });
 
 /* ------------------------------------------------------------------ health */

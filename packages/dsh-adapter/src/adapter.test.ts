@@ -8,7 +8,44 @@
  */
 import { describe, it, expect } from 'vitest';
 import { REDACTED } from '@operant/core';
-import { normalize } from './index.js';
+import { normalize, safeEnv } from './index.js';
+
+describe('agent child environment (security: no control-plane credentials)', () => {
+  const parent = {
+    PATH: '/usr/bin',
+    HOME: '/home/u',
+    NODE_ENV: 'production',
+    SURPLUS_API_KEY: 'provider-key-is-expected',
+    // These must never reach an agent.
+    OPERANT_BOT_TOKEN: 'control-plane-bearer',
+    DATABASE_URL: 'postgres://user:pw@host/db',
+    OPERANT_SESSION_SECRET: 'session-secret',
+    DISCORD_BOT_TOKEN: 'discord-token',
+    GOOGLE_APPLICATION_CREDENTIALS: '/secrets/gcp.json',
+  };
+
+  it('withholds the control-plane bearer and the database URL', () => {
+    const env = safeEnv(parent);
+    expect(env['OPERANT_BOT_TOKEN']).toBeUndefined();
+    expect(env['DATABASE_URL']).toBeUndefined();
+    expect(env['OPERANT_SESSION_SECRET']).toBeUndefined();
+    expect(env['DISCORD_BOT_TOKEN']).toBeUndefined();
+    expect(env['GOOGLE_APPLICATION_CREDENTIALS']).toBeUndefined();
+  });
+
+  it('still passes what the agent legitimately needs', () => {
+    const env = safeEnv(parent);
+    expect(env['PATH']).toBe('/usr/bin');
+    expect(env['HOME']).toBe('/home/u');
+    expect(env['SURPLUS_API_KEY']).toBe('provider-key-is-expected');
+  });
+
+  it('does not mutate the parent environment', () => {
+    const copy = { ...parent };
+    safeEnv(parent);
+    expect(parent).toEqual(copy);
+  });
+});
 
 describe('normalize: real DSH event shapes', () => {
   it('session -> job.status(dispatched) carrying the resumable session id', () => {
