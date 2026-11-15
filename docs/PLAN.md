@@ -1737,3 +1737,46 @@ effective value re-read from `/proc/environ` afterwards; the fixture task was de
 
 That closes the durability area. The remaining gaps elsewhere are unchanged and
 listed in the deployment report.
+
+---
+
+## 45. Round 36 — the laptop's MCP guard is a service now, not a shell I happened to leave running
+
+The gap said: "the local MCP guard is a manual process". It was worse — the guard
+running on the laptop was a child of a session I had started, so it would die whenever
+that went away, and the voicestudio tools would silently disappear from the local DSH.
+
+### What was built
+- `~/.dsh/mcp-guard-supervise.ps1` — a supervise loop that restarts the guard if it
+  dies, reading its bearer from the repo `.env`.
+- `operant-mcp-guard.vbs` in the Startup folder — the same detached, windowless launch
+  pattern the harness already uses for `:3081`.
+
+### What it verified, including the failure
+The supervisor logs to `~/.dsh/logs/mcp-guard.log`, and the sequence shows both halves:
+
+```
+04:22:17  supervisor starting
+04:22:36  OPERANT_MCP_TOKEN missing or short in E:\CodeProjects\operant\.env; not starting the guard
+04:23:37  OPERANT_MCP_TOKEN missing or short ...
+04:24:38  starting guard on :3901
+```
+
+The refusal is the interesting part: the local `.env` had **no** `OPERANT_MCP_TOKEN` —
+I had only ever exported it in the shell before hand-starting the guard. So the
+supervisor correctly declined to start an unauthenticated proxy and **said why in one
+line**. That is the difference between a service and a shrug.
+
+After persisting the token (`.env` is gitignored; verified with `git check-ignore`),
+the guard came back on `:3901` by itself. Killing the listener and waiting also brings
+it back.
+
+### The remaining honest gap on this host
+The **upstream is gone locally**: `docker ps` shows no containers at all, so
+VoiceStudio is not running on the laptop. The guard answers, and the MCP client reports
+the server disconnected — DSH keeps working, the voice tools are simply absent.
+
+So "wired into BOTH cloud and local DSH" is currently true of the wiring and false of
+the local upstream. Starting it is one command (`docker compose --profile voice up -d`)
+and is documented in the runbook; I did not start Docker Desktop on the user's machine
+without being asked.

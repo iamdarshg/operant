@@ -189,9 +189,29 @@ registers a `ctx.web` search provider). Wire it with a `link:` dependency plus a
    OPERANT_MCP_TOKEN=<from .env> node services/mcp-guard/server.mjs
    ```
 
-   On the VM it runs as `operant-mcp-guard.service`. On a laptop it is a manual
-   process today — if it is not running, the `mcp__voicestudio__*` tools simply
-   disappear rather than breaking DSH (`failOnStartupError: false`).
+   On the VM it runs as `operant-mcp-guard.service` (enabled, starts on boot).
+   On a laptop it runs under `~/.dsh/mcp-guard-supervise.ps1`, launched by
+   `operant-mcp-guard.vbs` in the Startup folder — the same pattern as the harness's
+   own `:3081` supervisor. The supervisor:
+
+   - reads `OPERANT_MCP_TOKEN` from the repo `.env`,
+   - **refuses to start the guard without it** and logs why (a proxy that starts
+     unauthenticated looks protected while protecting nothing),
+   - restarts the guard within ~15 s if it dies,
+   - logs to `~/.dsh/logs/mcp-guard.log`.
+
+   If the `mcp__voicestudio__*` tools are missing from a local DSH session, check
+   that log first: it distinguishes "no token" from "upstream down".
+
+   **The guard needs an upstream.** VoiceStudio itself is not running by default on a
+   laptop (there is no container until you start one):
+
+   ```bash
+   docker compose --profile voice up -d      # from the repo root
+   ```
+
+   Without it the guard still answers and the MCP client reports the server as
+   disconnected — DSH keeps working, the voice tools are simply absent.
 4. `/approvals` has no auto-refresh; the decided-state UI refreshes, the list does not.
 5. Absolute timestamps render in UTC with no zone label.
 6. `fastify` and `next` versions carry published advisories and need bumps.
