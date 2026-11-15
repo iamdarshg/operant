@@ -195,21 +195,57 @@ export function assessToolCall(tool: string, args: unknown): ToolCallAssessment 
     return { block: false, risk: 'low', kind: 'shell_command', reason: 'read-only tool' };
   }
 
+  // File-mutating tools are judged ONLY on their destination. Scanning their whole
+// argument object (which includes the file's content) meant a report that merely
+// mentioned `/etc/cron.d` or `.ssh/authorized_keys` was blocked — a false positive
+// that produced an approval the operator had to read and dismiss. Shell tools are
+// judged on their command, which is exactly what the rules below describe.
+  const writeish = /(write|edit|append|save|create|move|copy|patch)/i.test(name);
+  if (writeish) {
+    const destination = firstPathLike(args);
+    if (destination && CREDENTIAL_FILE.test(destination)) {
+      // Sharper than "outside the workspace": this is a privilege escalation, and
+      // the approver should see that rather than a vague path complaint.
+      return {
+        block: true,
+        risk: 'critical',
+        kind: 'account_change',
+        reason: `write to a credential or privilege file (${destination.slice(0, 80)})`,
+      };
+    }
+    if (destination && OUTSIDE_WORKSPACE.test(destination)) {
+      return {
+        block: true,
+        risk: 'high',
+        kind: 'file_write_outside_workspace',
+        reason: `write outside the job workspace (${destination.slice(0, 80)})`,
+      };
+    }
+    return { block: false, risk: 'low', kind: 'file_write_outside_workspace', reason: 'write inside the workspace' };
+  }
+
   for (const rule of SHELL_DENY) {
     if (rule.re.test(serialized)) {
       return { block: true, risk: rule.risk, kind: rule.kind, reason: rule.reason };
     }
   }
 
-  // Writes that escape the workspace: the sandbox should stop these, but if the
-  // permission mode were relaxed the policy still refuses to do it unasked.
-  const writeish = /\b(write|edit|create|append|save|move|copy)\b/i.test(name) || /(write|edit|patch)/.test(name);
-  const outside = /(\/etc\/|\/usr\/|\/var\/|\/root\/|system32|\.ssh\/|\.aws\/|\.dsh\/|authorized_keys)/i.test(serialized);
-  if (writeish && outside) {
-    return { block: true, risk: 'high', kind: 'file_write_outside_workspace', reason: 'write outside the job workspace' };
-  }
 
   return { block: false, risk: 'low', kind: 'shell_command', reason: 'no policy rule triggered' };
+}
+
+const CREDENTIAL_FILE = /(authorized_keys|\.ssh\/|shadow\b|sudoers|\.aws\/|\.dsh\/)/i;
+const OUTSIDE_WORKSPACE = /(\/etc\/|\/usr\/|\/var\/|\/root\/|system32|\.ssh\/|\.aws\/|\.dsh\/|authorized_keys)/i;
+
+/** Pull the destination path out of common tool argument shapes. */
+function firstPathLike(args: unknown): string | null {
+  if (!args || typeof args !== 'object') return null;
+  const record = args as Record<string, unknown>;
+  for (const key of ['file_path', 'filePath', 'path', 'target', 'destination', 'dest', 'filename']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
 }
 
 /** JSON.stringify that never throws on cycles. */
@@ -227,3 +263,4 @@ function safeStringify(value: unknown): string {
     return String(value);
   }
 }
+

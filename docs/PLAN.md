@@ -1289,3 +1289,50 @@ actual approval row. Every previous round that "read real data" found something:
 the dead scheduler, the phantom overflow, the ungated "Email the client", this. The
 inverse is also true — every round where I trusted my own summary, I was wrong about
 something.
+
+---
+
+## 35. Round 26 — the write rules were judging the wrong thing
+
+Capturing shapes for more wire schemas surfaced a second approval from
+`tool-boundary-guard`: a **write blocked as "outside the workspace"** whose
+destination was inside the job's own workspace. The file's *content* mentioned
+`/etc/cron.d` and `.ssh/authorized_keys` — example paths in a security report — and
+the rule scanned the whole argument object, content included.
+
+So the guard was judging text the agent was writing **about** security as though it
+were performing it. Same class of bug as `docker ps --format`: the pattern matched
+something adjacent to the true intent.
+
+### Fixed, in two parts
+1. **File-mutating tools are judged on their destination only** (`file_path`,
+   `path`, `target`, …), never on the content they carry.
+2. Shell tools keep scanning the command, which is what those rules describe.
+3. Within the write branch, a credential path (`authorized_keys`, `.ssh/`,
+   `.aws/`, `.dsh/`, `sudoers`, `shadow`) is classified as **`account_change` /
+   critical** rather than a generic "outside workspace" complaint — the approver
+   sees privilege escalation, not a path grievance.
+
+### Verified on the deployed artifact
+
+```
+PASS workspace report mentioning sensitive paths -> allow
+PASS write outside workspace                     -> block(file_write_outside_workspace)
+PASS credential file write                       -> block(account_change)
+PASS diagnostic (docker ps --format)             -> allow
+PASS real formatting (format C:)                 -> block(destructive)
+failures: 0
+```
+
+Core suite: **77 tests** (was 74). Running total **233**.
+
+### A process failure worth recording
+The first attempt to deploy this reported a *failing* check — because my `scp` used
+relative paths from the wrong working directory, so the host kept running the old
+predicate and I nearly "verified" a fix that was not deployed. The check that caught
+it was the check itself failing. Re-ran with absolute paths: 5/5 pass. **A
+verification step must confirm what actually reached the host, not what you intended
+to send.**
+
+Test-harness artifacts from my own probes and the acceptance runs were withdrawn
+from the approval queue with notes, so the operator's queue shows only real items.

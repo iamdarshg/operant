@@ -164,6 +164,30 @@ describe('tool-call boundary (enforcement that ignores wording)', () => {
     });
   }
 
+  // A write inside the workspace whose *content* merely mentions a sensitive path
+  // was blocked, because the whole argument object was scanned. Only the
+  // destination should be judged.
+  it('does not block a workspace write whose content mentions /etc/', () => {
+    const v = assessToolCall('write', {
+      file_path: '/opt/operant-src/operant/data/jobs/abc/report.md',
+      content: 'The rule matched /etc/cron.d and .ssh/authorized_keys examples.',
+    });
+    expect(v.block).toBe(false);
+  });
+
+  it('still blocks a write whose destination escapes the workspace', () => {
+    const v = assessToolCall('write', { file_path: '/var/log/operant.log', content: 'harmless text' });
+    expect(v.block).toBe(true);
+    expect(v.kind).toBe('file_write_outside_workspace');
+  });
+
+  it('classifies a credential-file write as an account change, not a path complaint', () => {
+    const v = assessToolCall('write', { file_path: '/root/.ssh/authorized_keys', content: 'harmless text' });
+    expect(v.block).toBe(true);
+    expect(v.kind).toBe('account_change');
+    expect(v.risk).toBe('critical');
+  });
+
   const stillDestructive = [
     ['bash', { command: 'format C: /Q' }],
     ['bash', { command: 'C:\\Windows\\System32\\format.com D:' }],
