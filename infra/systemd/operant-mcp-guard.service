@@ -1,0 +1,37 @@
+[Unit]
+Description=Operant MCP guard (authenticating proxy in front of VoiceStudio)
+Documentation=file:///opt/operant-src/operant/services/mcp-guard/server.mjs
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=iamdarshg
+Group=iamdarshg
+WorkingDirectory=/opt/operant-src/operant
+# The bearer is read from the same .env the control plane uses; it is never
+# written into this unit file, which is world-readable.
+EnvironmentFile=/opt/operant-src/operant/.env
+ExecStart=/usr/bin/node /opt/operant-src/operant/services/mcp-guard/server.mjs
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Hardening: the guard needs to open one loopback socket and nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/operant-src/operant/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

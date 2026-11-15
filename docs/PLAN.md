@@ -827,3 +827,48 @@ Verified against the running service:
 | Create through the proxy (the UI's path) | `Hourly memory sweep`, next run returned |
 | Unsupported rule | **400** refused, not stored |
 | Delete through the proxy | `deleted: true`, list back to 1 |
+
+---
+
+## 24. Round 15 — the unauthenticated speech endpoint now has a door
+
+VoiceStudio ships `/mcp/` with **no authentication whatsoever** — the security
+review confirmed `initialize`, `tools/list` and `tools/call` all succeeded with
+zero credentials, including `clone_voice`. Loopback binding only helps until
+something on the host is compromised or a forward is left open.
+
+`services/mcp-guard/server.mjs` is a dependency-free Node proxy that requires
+`Authorization: Bearer $OPERANT_MCP_TOKEN` and forwards method, path, headers,
+query and body unchanged, streaming the response so Streamable-HTTP MCP (POST
+JSON + GET SSE) behaves normally. It refuses to start below a 16-character token
+— a proxy that starts without a token looks protected while protecting nothing —
+compares with `timingSafeEqual`, strips the bearer before forwarding, and keeps
+`requestTimeout` disabled so SSE sessions are not cut at five minutes.
+
+Deployed as `operant-mcp-guard.service` (hardened: `ProtectSystem=strict`,
+loopback-only AF_INET). Both DSH profiles (cloud and laptop) now point at
+`:3901` with the header.
+
+Verified:
+
+| Check | Result |
+|---|---|
+| No token | **401** `{"error":"unauthorized"}` |
+| Wrong token | **401** |
+| Valid token, `initialize` | **200**, session id issued |
+| `tools/list` through the guard | **200**, all **9** tools present |
+| Real agent run | `mcp__voicestudio__check_health` → `{"status":"ok","device":"cpu","engine":"omnivoice","version":"0.5.8"}` |
+| Local laptop guard | healthz ok, 401 without token, 200 with token |
+
+Honest limit: anyone with local shell access can still curl `:3900` directly. The
+guard closes the network surface, not the host surface — that remains the real
+boundary, and the report says so rather than claiming the service is now secure.
+
+### Recurring mistake worth naming
+Twice this round I diagnosed a "broken" service whose error was from **before the
+fix**: `systemctl start` after a failure loop reports
+`Start request repeated too quickly`, and the journal then shows stale stack
+traces. `systemctl reset-failed` was the fix both times. I also used an expanding
+PowerShell here-string (`@"..."@`), which made `systemctl` run on the laptop
+instead of the VM. Both are now habits: reset-failed after any failed unit, and
+`@'...'@` for anything containing `$(`.

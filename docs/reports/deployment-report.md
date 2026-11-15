@@ -103,8 +103,12 @@ actual sha256           = bb5fd045…58ee   (match)
    `403 Licence not accepted for k2-fsa/OmniVoice, eustlb/higgs-audio-v2-tokenizer`.
    Accepting a licence is your legal act, not mine. CPU TTS via the OpenAI-compatible
    `POST /v1/audio/speech` with `model:"kittentts"` does work.
-3. **VoiceStudio `/mcp` is unauthenticated** (upstream design). Mitigated only by
-   loopback binding + IAP. Anyone on the VM can call its 9 tools.
+3. **VoiceStudio itself has no authentication** (upstream design). It is now
+   reachable only through `services/mcp-guard`, a dependency-free proxy that
+   requires `Authorization: Bearer $OPERANT_MCP_TOKEN` — verified 401 without a
+   token, 200 with one, all 9 tools working through it, on **both** cloud and
+   local. Anyone with local shell access can still bypass the guard and reach
+   `:3900` directly, so on-host access remains the real boundary.
 4. **Per-agent tool authorization is enforced for privileged tools only** (`bash`,
    `pwsh`, `shell`, `write`, `edit`, `multiedit`, `apply_patch`). A `research`
    agent is refused the shell, and that refusal is a hard failure with **no

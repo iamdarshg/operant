@@ -181,8 +181,17 @@ registers a `ctx.web` search provider). Wire it with a `link:` dependency plus a
    fix and is not done.
 2. `allowed_tools` on an agent is documentation, not enforcement. Tool-level
    authorization is not implemented.
-3. VoiceStudio's `/mcp` endpoint is **unauthenticated** (upstream design). It is
-   mitigated only by binding to loopback and reaching it over SSH/IAP.
+3. VoiceStudio's own `/mcp` endpoint is **unauthenticated in the image**. It is
+   reached only through `services/mcp-guard` (port 3901), which requires
+   `Authorization: Bearer $OPERANT_MCP_TOKEN`. Start it on every host:
+
+   ```bash
+   OPERANT_MCP_TOKEN=<from .env> node services/mcp-guard/server.mjs
+   ```
+
+   On the VM it runs as `operant-mcp-guard.service`. On a laptop it is a manual
+   process today — if it is not running, the `mcp__voicestudio__*` tools simply
+   disappear rather than breaking DSH (`failOnStartupError: false`).
 4. `/approvals` has no auto-refresh; the decided-state UI refreshes, the list does not.
 5. Absolute timestamps render in UTC with no zone label.
 6. `fastify` and `next` versions carry published advisories and need bumps.
