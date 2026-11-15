@@ -672,6 +672,16 @@ input::placeholder {
   color: var(--color-error);
   font-weight: 500;
 }
+
+/* Error text on the dark band.
+ *
+ * `--color-error` is tuned for light surfaces and measured 2.85:1 against the ink
+ * band — below the 4.5:1 AA floor. The palette already carried
+ * `--color-error-on-ink` for exactly this case; it was applied to the tape's result
+ * block but never to the feedback paragraph. */
+.band--ink .feedback--error {
+  color: var(--color-error-on-ink);
+}
 .feedback--ok {
   color: var(--color-ink);
   font-weight: 500;

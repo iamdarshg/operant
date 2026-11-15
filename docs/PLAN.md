@@ -1850,3 +1850,35 @@ point and all six are distinct, so it is recorded rather than chased.
 `/tasks/[id]` uses a static "Task" title. A `generateMetadata` that includes the task
 title would be better for history and bookmarks; it needs a fetch per navigation and
 was not done.
+
+---
+
+## 48. Round 39 — an error nobody could read
+
+The QA review flagged that the error paragraph on the dark band measured **2.85:1**,
+below the 4.5:1 AA floor. Confirmed, and the cause was embarrassing: the palette
+already defined `--color-error-on-ink` for exactly this case, applied it to the tape's
+result block… and never applied it to the feedback paragraph.
+
+### Fixed
+`.band--ink .feedback--error { color: var(--color-error-on-ink); }`
+
+### Measured rather than assumed
+Converted both tokens from OKLCH to linear sRGB and computed WCAG relative luminance:
+
+```
+--color-error        on ink : 3.20:1   (AA needs 4.5)  <- the bug
+--color-error-on-ink on ink : 8.01:1   (AA needs 4.5)  <- now
+```
+
+My 3.20 does not exactly match QA's 2.85 — different ink band shade or their sampling
+included antialiasing — but both are below the floor, so the finding was real either
+way. The replacement clears it with room.
+
+Verified the rule is in the shipped CSS (`9290323de8b6978e.css`), not just the source.
+
+### What this pattern keeps showing
+This is the third time the same shape has appeared: a capability existed and was never
+wired up — the `schedules` table, the `artifacts` table, `allowed_tools`, and now a
+colour token. The platform was not missing features so much as missing **connections
+between things it already had**. That is a more useful diagnosis than "add more".
