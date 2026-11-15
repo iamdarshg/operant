@@ -669,3 +669,37 @@ determinism. Core suite now **55 tests**.
 Schedules are API-only (no dashboard or Discord surface yet); `allowed_tools` is
 still documentation; VoiceStudio `/mcp` is still unauthenticated; `/approvals`
 still has no auto-refresh and timestamps still carry no zone label.
+
+---
+
+## 19. Round 10 — the dashboard stops lying about time and staleness
+
+Two defects the independent QA reviewer reported, both now fixed and confirmed
+against the rendered pages (not just the source).
+
+### Timestamps said UTC without saying so
+`stamp()` rendered `2026-11-16 19:09:18` with no zone. On an IST browser that reads
+as 19:09 **local**, which is 19:09 UTC — off by 5h30. The page is server-rendered
+and cannot know the viewer's zone, so it now states the zone it uses:
+`2026-11-16 19:59:59 UTC`.
+
+Verified: 8 zone-labelled timestamps on the board, and the same treatment on
+`/approvals`.
+
+### `/approvals` never refreshed
+A held approval is time-sensitive; a queue that only updates on manual reload
+invites acting on a stale screen. The page now mounts `AutoRefresh` (5 s, paused
+while the tab is hidden, no animation), active only while something is pending.
+
+Verified: `visibilityState` is present in the shipped `app/approvals/page-*.js`
+chunk — the refresher is genuinely bundled, not just referenced.
+
+### Housekeeping
+Nine approvals created by my own acceptance tests (`guard-test*`, `qa-selfcheck`,
+`tape-test`, `security-review`, …) were sitting in the operator's real queue. They
+were rejected with an explicit note rather than deleted, so the audit trail still
+shows who created them and why they were closed. One genuine pending approval
+remains.
+
+Also verified in the same pass: the dashboard builds and runs on **next 15.5.28**
+(the advisory fix), and the proxy still serves live data through it.

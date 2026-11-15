@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import { ApprovalRow } from '@/components/ApprovalRow';
+import { AutoRefresh } from '@/components/AutoRefresh';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -10,6 +11,8 @@ export default async function ApprovalsPage() {
 
   return (
     <div className="container">
+      {/* A held approval is time-sensitive; the queue must not go stale while it sits open. */}
+      <AutoRefresh active={approvals.length > 0} intervalMs={5000} />
       <div className="screen-head">
         <div>
           <h1>Approvals</h1>

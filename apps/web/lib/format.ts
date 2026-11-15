@@ -54,7 +54,11 @@ export function age(iso: string, now = Date.now()): string {
 
 export function stamp(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toISOString().replace('T', ' ').slice(0, 19);
+  // A bare clock time reads as *local* to whoever is looking at it. This page is
+  // server-rendered and cannot know the viewer's zone, so it says the zone
+  // instead of implying one. (An IST browser previously read 19:09:18 as local
+  // evening when it was UTC.)
+  return `${new Date(iso).toISOString().replace('T', ' ').slice(0, 19)} UTC`;
 }
 
 export function shortId(id: string): string {
