@@ -102,3 +102,53 @@ export const MemoryResultWire = z
   .passthrough();
 
 export const MemorySearchWire = z.object({ results: z.array(MemoryResultWire) }).passthrough();
+
+export const JobWire = z
+  .object({
+    id: z.string().uuid(),
+    task_id: z.string().uuid(),
+    kind: z.string(),
+    status: z.string(),
+    agent_id: z.string(),
+    parent_job_id: z.string().uuid().nullable(),
+    title: z.string(),
+    prompt: z.string(),
+    attempt: z.number(),
+    max_attempts: z.number(),
+    workspace_path: z.string(),
+    permission_mode: z.string(),
+    result: z.string().nullable(),
+    error: z.string().nullable(),
+  })
+  .passthrough();
+
+export const JobEnvelopeWire = z.object({ job: JobWire }).passthrough();
+
+export const UsageWire = z
+  .object({
+    usage: z
+      .object({
+        prompt_tokens: z.number(),
+        completion_tokens: z.number(),
+        jobs: z.number(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+export const LearningSummaryWire = z
+  .object({
+    summary: z
+      .object({
+        incidents: z.number(),
+        open: z.number(),
+        proposals: z.number(),
+        promoted: z.number(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+export const VoiceHealthWire = z
+  .object({ state: z.string(), detail: z.string().nullable().optional() })
+  .passthrough();

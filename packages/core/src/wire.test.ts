@@ -7,6 +7,11 @@ import {
   ScheduleWire,
   MemoryResultWire,
   MemorySearchWire,
+  JobWire,
+  JobEnvelopeWire,
+  UsageWire,
+  LearningSummaryWire,
+  VoiceHealthWire,
 } from './wire.js';
 
 const real = {
@@ -162,5 +167,64 @@ describe('memory result wire', () => {
   it('validates the search envelope', () => {
     expect(MemorySearchWire.safeParse({ results: [realMemory] }).success).toBe(true);
     expect(MemorySearchWire.safeParse({ rows: [realMemory] }).success).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------------ */
+
+const realJob = {
+  id: '0dc271d8-4fa3-496e-8b92-0a64ae0c23a5',
+  task_id: 'bdd33123-d411-42d2-a679-e493ca0ab2e5',
+  kind: 'execute',
+  status: 'interrupted',
+  agent_id: 'generalist',
+  parent_job_id: null,
+  title: 'Summarise the customer feedback.',
+  prompt: 'TASK: Summarise the customer feedback.',
+  attempt: 1,
+  max_attempts: 2,
+  workspace_path: '/opt/operant-src/operant/data/jobs/abc',
+  permission_mode: 'workspace-write',
+  result: null,
+  error: 'blocked at the tool boundary: make world-writable (bash)',
+};
+
+describe('job wire', () => {
+  it('accepts a real job row, including null result and parent', () => {
+    expect(JobWire.safeParse(realJob).success).toBe(true);
+    expect(JobEnvelopeWire.safeParse({ job: realJob }).success).toBe(true);
+  });
+
+  it('rejects a missing workspace_path and a non-uuid task_id', () => {
+    const { workspace_path: _drop, ...noPath } = realJob;
+    expect(JobWire.safeParse(noPath).success).toBe(false);
+    expect(JobWire.safeParse({ ...realJob, task_id: 'nope' }).success).toBe(false);
+  });
+});
+
+describe('usage wire', () => {
+  it('accepts the real counter triple and rejects a string count', () => {
+    expect(UsageWire.safeParse({ usage: { prompt_tokens: 657740, completion_tokens: 138215, jobs: 42 } }).success).toBe(
+      true,
+    );
+    expect(UsageWire.safeParse({ usage: { prompt_tokens: '657740', completion_tokens: 0, jobs: 0 } }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('learning summary wire', () => {
+  it('accepts the real counters and rejects a missing proposals field', () => {
+    const real = { summary: { incidents: 2, open: 2, repeats: 1, proposals: 1, promoted: 0, memories: 0 } };
+    expect(LearningSummaryWire.safeParse(real).success).toBe(true);
+    const { proposals: _drop, ...withoutProposals } = real.summary;
+    expect(LearningSummaryWire.safeParse({ summary: withoutProposals }).success).toBe(false);
+  });
+});
+
+describe('voice health wire', () => {
+  it('accepts a healthy upstream and rejects a missing state', () => {
+    expect(VoiceHealthWire.safeParse({ state: 'healthy', detail: '{"status":"ok"}' }).success).toBe(true);
+    expect(VoiceHealthWire.safeParse({ detail: 'x' }).success).toBe(false);
   });
 });

@@ -32,6 +32,10 @@ import {
   ApprovalListWire,
   ScheduleListWire,
   MemorySearchWire,
+  JobEnvelopeWire,
+  UsageWire,
+  LearningSummaryWire,
+  VoiceHealthWire,
 } from '@operant/core';
 import {
   cancelTask,
@@ -352,7 +356,7 @@ app.get('/v1/jobs/:id', async (req, reply) => {
   const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
   const job = await getJob(db, id);
   if (!job) return reply.code(404).send({ error: 'not_found' });
-  return { job };
+  return assertWire(JobEnvelopeWire, { job }, 'job');
 });
 
 app.get('/v1/jobs/:id/events', async (req, reply) => {
@@ -542,7 +546,7 @@ app.post('/v1/approvals/:id/decide', async (req, reply) => {
 
 /* --------------------------------------------------------------------- usage */
 
-app.get('/v1/usage', async () => ({ usage: await usageSummary(db) }));
+app.get('/v1/usage', async () => assertWire(UsageWire, { usage: await usageSummary(db) }, 'usage'));
 
 /* --------------------------------------------------------------- voice (proxy)
  *
@@ -561,7 +565,9 @@ app.get('/v1/voice/health', async (_req, reply) => {
   try {
     const r = await fetch(`${VOICE_BASE}/health`, { signal: AbortSignal.timeout(8000) });
     const body = await r.text();
-    return reply.code(r.ok ? 200 : 502).send({ state: r.ok ? 'healthy' : 'degraded', detail: body });
+    return reply
+      .code(r.ok ? 200 : 502)
+      .send(assertWire(VoiceHealthWire, { state: r.ok ? 'healthy' : 'degraded', detail: body }, 'voice health'));
   } catch (err) {
     return reply.code(503).send({ state: 'unreachable', detail: String(err) });
   }
@@ -710,7 +716,7 @@ app.delete('/v1/schedules/:id', async (req, reply) => {
 
 /* ------------------------------------------------------------------ learning */
 
-app.get('/v1/learning/summary', async () => ({ summary: await learningSummary(db) }));
+app.get('/v1/learning/summary', async () => assertWire(LearningSummaryWire, { summary: await learningSummary(db) }, 'learning summary'));
 
 app.get('/v1/learning/incidents', async () => {
   const incidents = await db`SELECT * FROM incidents ORDER BY last_seen_at DESC LIMIT 100`;
@@ -800,6 +806,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 
 await app.listen({ port: PORT, host: HOST });
 app.log.info({ port: PORT, host: HOST, profile: DSH_PROFILE }, 'operant api listening');
+
 
 
 
