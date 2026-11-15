@@ -18,7 +18,18 @@
 /** Local tunnel target used during development on the operator's laptop. */
 export const DEV_API_BASE = 'http://127.0.0.1:8787';
 /** Development-only bearer token for the local control plane. */
-export const DEV_API_TOKEN = 'devtoken-operant-cloud-0123456789';
+/**
+ * Development fallback for the control-plane bearer.
+ *
+ * SECURITY: this is deliberately NOT a working credential. An earlier revision
+ * hardcoded the real dev token here, which put a live credential into git
+ * history — a critical finding from the independent security review. A token in
+ * source is a token in every clone, fork and backup.
+ *
+ * The value below will always receive 401 from a real API, which is the correct
+ * fail-closed behaviour: it forces the operator to supply OPERANT_BOT_TOKEN.
+ */
+export const DEV_API_TOKEN = 'dev-token-placeholder-not-a-real-credential';
 
 /** Discord's hard cap for a single attachment download we are willing to read. */
 const DEFAULT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;

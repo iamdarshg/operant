@@ -1,5 +1,5 @@
 [Unit]
-StartLimitIntervalSec=180
+StartLimitIntervalSec=600
 StartLimitBurst=5
 Description=Operant job worker (spawns DeepSeek Harness runs)
 After=network-online.target operant-api.service
@@ -32,7 +32,7 @@ PrivateTmp=true
 # read-only rather than fully private.
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/opt/operant-src/operant/data
+ReadWritePaths=/opt/operant-src/operant/data /home/iamdarshg/.dsh
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -44,3 +44,4 @@ SyslogIdentifier=operant-worker
 
 [Install]
 WantedBy=multi-user.target
+

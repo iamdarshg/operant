@@ -353,3 +353,80 @@ worker's job is now reclaimable in ~3 minutes instead of stalling for 15.
 The units run as `iamdarshg`, not a dedicated `operant` account, because the agent
 runtime reads `~/.dsh` (profile + credentials) which that account owns. Migrating
 that home to a service user is the correct next step and is not done yet.
+
+---
+
+## 14. Round 5b — independent reviews, a critical finding, and reboot-recovery defects
+
+### CRITICAL, found by the security reviewer and FIXED
+
+The live bearer token was **hardcoded in `apps/bot/src/config.ts`** and therefore in
+git (introduced in `1feda7c`). A token in source is a token in every clone, fork
+and backup.
+
+Fixed in two steps:
+1. The dev fallback is now a **non-functional placeholder**
+   (`dev-token-placeholder-not-a-real-credential`); a real API answers 401 to it,
+   which is the correct fail-closed behaviour and forces the operator to supply
+   `OPERANT_BOT_TOKEN`.
+2. The live token was **rotated** (64 hex chars) on the VM and the laptop.
+   Verified: the old token now returns **401**, the new one authenticates.
+
+**Still outstanding: the old token remains in git history.** Purging history is a
+rewrite that needs an explicit decision; until then the only real mitigation is
+that it is already rotated and dead.
+
+### HIGH findings I have NOT fixed (stated plainly)
+
+| # | Finding | Why it matters | Status |
+|---|---|---|---|
+| H1 | **Approval gate bypassed 11/11 by paraphrase** (`rm -r -f`, `Remove-Item -Recurse -Force`, `delete every file under…`, `drop the users table`, `email the client…`) | The gate inspects *prose*, so any rewording walks past it. The reviewer's conclusion is right: a prose denylist is decorative. Real fix is gating at the **tool-call boundary** — inspect what the agent is about to do, not what the human typed. | OPEN — needs a design change, not a patch |
+| H2 | Agent child inherits `OPERANT_BOT_TOKEN` and `DATABASE_URL` (`safeEnv()` spreads `process.env`) | One prompt injection escalates from "agent misbehaves" to "attacker owns the control plane" | OPEN |
+| H3 | VoiceStudio `/mcp` is unauthenticated (9 tools incl. `clone_voice`) | SSRF → impersonation. Mitigated today only by loopback-only binding + IAP | OPEN |
+| H4 | No rate limiting / lockout on auth | 120 wrong-token requests → 120×401, zero 429 | OPEN |
+| M1 | `fastify@5.2.1` (GHSA-p68q-wchp-6fh7, fix ≥5.12.2) and `next@15.1.3` (GHSA-2464-fhr4-w9xw, fix ≥15.5.28) | Known advisories on the auth path and unauth RCE | OPEN — bump needs a verified rebuild |
+| M2 | CORS `origin: true` | Any origin may call the API from a browser | OPEN |
+
+What held up (verified): no `/v1` route reachable without a token (401 for absent,
+wrong, empty, truncated and query-string tokens); constant-time XOR compare; token
+absent from `.next/static`; `.env` and `secrets/` gitignored; `audio_path`
+confinement really enforced (`/etc/passwd` and traversal both refused); MCP foreign
+`Host` → 403; malformed JSON-RPC → 400; prompt delivered on **stdin, never argv**;
+SQL uses tagged templates only; the gate does create **0 job rows** while holding.
+
+### Reboot-recovery defects — three, all mine, all fixed
+
+The reboot test was not ceremonial; it broke three things at once:
+
+1. **`operant-pg` had no restart policy** (`docker run` without `--restart`), so the
+   database did not come back after boot. Fixed: `restart=unless-stopped` (verified
+   from `docker inspect`).
+2. **The worker crashed instead of retrying** when the DB was briefly unavailable,
+   and systemd's start-rate limit then marked the unit *permanently failed*. Fixed
+   with in-process exponential backoff (1 s → 30 s) and a wider start-limit window.
+3. **My own sandbox blocked DSH session writes.** `ProtectHome=read-only` meant the
+   agent could not write `~/.dsh/sessions`, so runs failed in ~2 s. Fixed by adding
+   `/home/iamdarshg/.dsh` to `ReadWritePaths` — the lesson is that hardening the
+   *worker* also hardens the *child agent runtime*, which has its own write needs.
+
+After the fixes: `api=active worker=active`, and a real job returns
+`result: "SYSTEMD-OK"` under systemd.
+
+### QA finding #1 resolved
+
+Plain `next start` rendered every panel as an error because Next does not load the
+repo-root `.env` and `next start` forces `NODE_ENV=production`, disabling the dev
+fallback. Correct invocation (now the documented one):
+
+```
+cd apps/web && node --env-file=..\..\.env node_modules\next\dist\bin\next start -p 3100
+```
+
+Verified myself on a free port: page renders control-plane content (59 KB, no token
+error), proxy returns **3 tasks / 2 pending approvals**, and the full
+**approve → job** leg works through the browser proxy:
+`waiting_approval (jobId empty)` → approve → `job c3535e29… queued` → task `running`.
+
+Process note: my first attempt probed port 3101, which was the *QA reviewer's* own
+server, and reported a false "still broken". Checking which process owns a port
+before trusting its output matters.

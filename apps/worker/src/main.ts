@@ -251,9 +251,23 @@ async function executeJob(job: JobRow): Promise<void> {
 
 async function loop(slot: number): Promise<void> {
   active += 1;
+  // A worker must OUTLIVE a briefly unavailable database. Previously a failed
+  // claim threw out of the loop, exited the process, and systemd's start-rate
+  // limit then marked the unit permanently failed — observed for real on the
+  // first reboot test. Back off instead.
+  let backoffMs = 1000;
   try {
     while (!shuttingDown) {
-      const job = await claimNextJob(db, `${workerId}#${slot}`);
+      let job: JobRow | null = null;
+      try {
+        job = await claimNextJob(db, `${workerId}#${slot}`);
+        backoffMs = 1000;
+      } catch (err) {
+        log('claim failed; backing off', { slot, error: String(err).slice(0, 300), backoffMs });
+        await new Promise((r) => setTimeout(r, backoffMs));
+        backoffMs = Math.min(backoffMs * 2, 30_000);
+        continue;
+      }
       if (!job) {
         await new Promise((r) => setTimeout(r, 1000));
         continue;

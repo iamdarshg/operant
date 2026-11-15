@@ -112,7 +112,7 @@ describe('--check', () => {
     expect(code).toBe(0);
     expect(out.text()).toContain('RUNNABLE (exit 0)');
     const tasksCall = fetcher.matching('GET', '/v1/tasks')[0]!;
-    expect(tasksCall.headers['authorization']).toBe('Bearer devtoken-operant-cloud-0123456789');
+    expect(tasksCall.headers['authorization']).toBe('Bearer dev-token-placeholder-not-a-real-credential');
   });
 
   it('exits 1 when the control plane is unreachable', async () => {

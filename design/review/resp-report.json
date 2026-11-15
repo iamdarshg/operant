@@ -1,0 +1,218 @@
+[
+  {
+    "route": "/",
+    "w": 1440,
+    "file": "design/review/resp_-1440.png",
+    "scrollW": 1440,
+    "clientW": 1440,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [
+      {
+        "tag": "input",
+        "text": "",
+        "w": 13,
+        "h": 16
+      }
+    ],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 1312,
+        "scrollW": 1312,
+        "rows": 3
+      }
+    ]
+  },
+  {
+    "route": "/",
+    "w": 768,
+    "file": "design/review/resp_-768.png",
+    "scrollW": 768,
+    "clientW": 768,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [
+      {
+        "tag": "input",
+        "text": "",
+        "w": 16,
+        "h": 16
+      }
+    ],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 720,
+        "scrollW": 720,
+        "rows": 3
+      }
+    ]
+  },
+  {
+    "route": "/",
+    "w": 390,
+    "file": "design/review/resp_-390.png",
+    "scrollW": 390,
+    "clientW": 390,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [
+      {
+        "tag": "input",
+        "text": "",
+        "w": 16,
+        "h": 16
+      }
+    ],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 358,
+        "scrollW": 358,
+        "rows": 3
+      }
+    ]
+  },
+  {
+    "route": "/approvals",
+    "w": 1440,
+    "file": "design/review/resp_approvals-1440.png",
+    "scrollW": 1440,
+    "clientW": 1440,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 1312,
+        "scrollW": 1312,
+        "rows": 4
+      }
+    ]
+  },
+  {
+    "route": "/approvals",
+    "w": 768,
+    "file": "design/review/resp_approvals-768.png",
+    "scrollW": 768,
+    "clientW": 768,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 720,
+        "scrollW": 720,
+        "rows": 4
+      }
+    ]
+  },
+  {
+    "route": "/approvals",
+    "w": 390,
+    "file": "design/review/resp_approvals-390.png",
+    "scrollW": 390,
+    "clientW": 390,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 358,
+        "scrollW": 358,
+        "rows": 4
+      }
+    ]
+  },
+  {
+    "route": "/memory",
+    "w": 1440,
+    "file": "design/review/resp_memory-1440.png",
+    "scrollW": 1440,
+    "clientW": 1440,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": []
+  },
+  {
+    "route": "/memory",
+    "w": 768,
+    "file": "design/review/resp_memory-768.png",
+    "scrollW": 768,
+    "clientW": 768,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": []
+  },
+  {
+    "route": "/memory",
+    "w": 390,
+    "file": "design/review/resp_memory-390.png",
+    "scrollW": 390,
+    "clientW": 390,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": []
+  },
+  {
+    "route": "/fleet",
+    "w": 1440,
+    "file": "design/review/resp_fleet-1440.png",
+    "scrollW": 1440,
+    "clientW": 1440,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 1312,
+        "scrollW": 1312,
+        "rows": 3
+      }
+    ]
+  },
+  {
+    "route": "/fleet",
+    "w": 768,
+    "file": "design/review/resp_fleet-768.png",
+    "scrollW": 768,
+    "clientW": 768,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 720,
+        "scrollW": 720,
+        "rows": 3
+      }
+    ]
+  },
+  {
+    "route": "/fleet",
+    "w": 390,
+    "file": "design/review/resp_fleet-390.png",
+    "scrollW": 390,
+    "clientW": 390,
+    "overflowX": false,
+    "offenders": [],
+    "smallTargets": [],
+    "tables": [
+      {
+        "cls": "data",
+        "w": 358,
+        "scrollW": 358,
+        "rows": 3
+      }
+    ]
+  }
+]
