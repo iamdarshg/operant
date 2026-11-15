@@ -14,6 +14,10 @@ type Props = {
   agentId: string;
   agentDisplay: string;
   kind: string;
+  /** Rows to show; the rest stays in the persisted trail. */
+  limit?: number;
+  /** The result belongs on the task screen; the control screen shows the tape. */
+  showResult?: boolean;
 };
 
 const MAX_ROWS = 200;
@@ -32,6 +36,8 @@ export function JobTape({
   agentId,
   agentDisplay,
   kind,
+  limit = 200,
+  showResult = true,
 }: Props) {
   const [events, setEvents] = useState<JobEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
@@ -82,6 +88,7 @@ export function JobTape({
   }, [jobId, initialStatus]);
 
   const terminal = isTerminalJob(status);
+  const shown = events.length > limit ? events.slice(-limit) : events;
 
   return (
     <div className="tape">
@@ -95,7 +102,8 @@ export function JobTape({
           </span>
         </p>
         <p className="tape__id">
-          {events.length} {events.length === 1 ? 'event' : 'events'} {listening ? 'listening' : 'closed'}
+          {events.length} {events.length === 1 ? 'event' : 'events'}
+          {listening ? ', stream listening' : ', stream closed'}
         </p>
       </div>
 
@@ -105,7 +113,15 @@ export function JobTape({
         </p>
       ) : (
         <ol className="tape__log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Job events">
-          {events.map((event) => (
+          {events.length > limit ? (
+            <li className="tape__row tape__row--note">
+              <span className="tape__seq">…</span>
+              <span className="tape__type">earlier</span>
+              <span className="tape__line">earlier events stay in the persisted trail; this shows the last {limit}</span>
+              <span className="tape__at" />
+            </li>
+          ) : null}
+          {shown.map((event) => (
             <li className="tape__row" key={`${event.job_id}-${event.seq}`}>
               <span className="tape__seq">{String(event.seq).padStart(2, '0')}</span>
               <span className="tape__type">{event.type}</span>
@@ -129,8 +145,8 @@ export function JobTape({
         <span>seq {lastSeq.current}</span>
       </div>
 
-      {result ? <p className="tape__result">{result}</p> : null}
-      {error ? <p className="tape__result tape__result--error">{error}</p> : null}
+      {showResult && result ? <p className="tape__result">{result}</p> : null}
+      {showResult && error ? <p className="tape__result tape__result--error">{error}</p> : null}
     </div>
   );
 }

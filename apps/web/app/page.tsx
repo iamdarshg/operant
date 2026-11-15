@@ -168,6 +168,8 @@ export default async function ControlPage() {
                   agentId={focusJob.agent_id}
                   agentDisplay={agentNames.get(focusJob.agent_id) ?? focusJob.agent_id}
                   kind={focusJob.kind}
+                  limit={16}
+                  showResult={false}
                 />
                 {openTask ? (
                   <p className="label">

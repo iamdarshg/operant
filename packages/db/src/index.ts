@@ -146,23 +146,38 @@ export async function createTaskWithJob(
 /**
  * Claim the oldest queued job, or one whose lease expired (a dead worker).
  * Returns null when there is nothing to do — which is not an error.
+ *
+ * The claim and the task's status transition happen in ONE statement. Doing it
+ * in two (claim here, update the task later from the worker) left the task
+ * showing `queued` for the whole run, because the worker only learned the
+ * session id after the child process had already spawned.
  */
 export async function claimNextJob(db: Db, workerId: string, leaseSeconds = 900): Promise<JobRow | null> {
   const rows = await db<JobRow[]>`
-    UPDATE jobs
-       SET status = 'running',
-           lease_owner = ${workerId},
-           lease_expires_at = now() + (${leaseSeconds} || ' seconds')::interval,
-           started_at = coalesce(started_at, now()),
-           updated_at = now()
-     WHERE id = (
-       SELECT id FROM jobs
-        WHERE status = 'queued'
-           OR (status IN ('running','dispatched') AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
-        ORDER BY created_at
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1)
-    RETURNING *`;
+    WITH claimed AS (
+      UPDATE jobs
+         SET status = 'running',
+             lease_owner = ${workerId},
+             lease_expires_at = now() + (${leaseSeconds} || ' seconds')::interval,
+             started_at = coalesce(started_at, now()),
+             updated_at = now()
+       WHERE id = (
+         SELECT id FROM jobs
+          WHERE status = 'queued'
+             OR (status IN ('running','dispatched') AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
+          ORDER BY created_at
+          FOR UPDATE SKIP LOCKED
+          LIMIT 1)
+      RETURNING *
+    ), touched AS (
+      UPDATE tasks t
+         SET status = 'running',
+             started_at = coalesce(t.started_at, now()),
+             updated_at = now()
+        WHERE t.id IN (SELECT task_id FROM claimed)
+          AND t.status IN ('queued','planning')
+    )
+    SELECT * FROM claimed`;
   return rows[0] ?? null;
 }
 

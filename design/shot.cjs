@@ -32,6 +32,11 @@ async function main() {
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
   await page.evaluate(() => document.fonts.ready);
   await new Promise((r) => setTimeout(r, wait));
+  const scrollArg = process.argv.find((a) => a.startsWith('--scroll='));
+  if (scrollArg) {
+    await page.evaluate((y) => window.scrollTo(0, y), Number(scrollArg.slice('--scroll='.length)));
+    await new Promise((r) => setTimeout(r, 300));
+  }
   await page.screenshot({ path: out, fullPage: full });
   console.log(`wrote ${out} at ${width}x${height}${full ? ' (full page)' : ''}`);
   if (errors.length) console.log('console errors:\n' + errors.join('\n'));

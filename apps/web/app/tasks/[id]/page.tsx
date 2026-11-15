@@ -23,10 +23,10 @@ export default async function TaskPage({
   if (!result.ok) {
     return (
       <div className="container">
+        <h1>No task to show</h1>
         <p className="label">
           <Link href="/">Back to the board</Link>
         </p>
-        <h1>No task to show</h1>
         <p className="pending-block" role="alert">
           {result.status === 404
             ? `The control plane has no task with id ${id}.`
@@ -48,9 +48,6 @@ export default async function TaskPage({
     <>
       <AutoRefresh active={!terminal} />
       <div className="container">
-        <p className="label">
-          <Link href="/">Back to the board</Link>
-        </p>
         <div className="screen-head">
           <div>
             <h1>{task.title}</h1>
@@ -60,7 +57,12 @@ export default async function TaskPage({
                 : `Task ${task.id.slice(0, 8)}: ${task.intent}`}
             </p>
           </div>
-          <StatusWord status={task.status} />
+          <p className="screen-head__aside">
+            <StatusWord status={task.status} />
+            <Link className="label" href="/">
+              Back to the board
+            </Link>
+          </p>
         </div>
 
         <dl className="facts">
@@ -203,6 +205,8 @@ export default async function TaskPage({
                   agentId={selected.agent_id}
                   agentDisplay={selected.agent_id}
                   kind={selected.kind}
+                  limit={60}
+                  showResult={false}
                 />
               ) : (
                 <p className="pending-block" role="alert">

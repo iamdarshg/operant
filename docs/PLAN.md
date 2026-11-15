@@ -234,3 +234,63 @@ repeat the 0-bytes-free incident.
 
 No single command may block for more than 2 minutes; anything longer runs as a
 background job while other work proceeds.
+
+---
+
+## 12. Round 4 — Hallmark dashboard, and the bug it exposed
+
+### Dashboard (Hallmark-governed, verified)
+
+Direction: Hallmark **app-screen** run, dealt theme **Wayfind** (modern-minimal,
+platform colourway). Rationale recorded in the app: a control plane is a
+departures board — cool grey paper, blue-black ink, Chivo Mono so IDs/seqs/token
+counts are tabular, 2px rules instead of cards, cobalt for live, amber for figures
+on ink. The alternative deals were rejected because they would have dressed an
+operator console as a brand page.
+
+Routes: `/` mission control, `/tasks/[id]`, `/memory`, `/approvals`, `/fleet`.
+
+Verification I performed myself (not taken from the implementing agent):
+
+| Check | Result |
+|---|---|
+| Proxy route exists and is the only browser surface | `apps/web/app/api/v1/[...path]/route.ts`, 105 lines, regex whitelists for GETABLE/POSTABLE paths, token read server-side |
+| Token leakage | **0** hits for the token in `.next/static/**`; `OPERANT_BOT_TOKEN` present in server chunks (4 refs) |
+| Screenshots | 11 PNGs in `design/screenshots/` (control 1440/768/390, task 1440/390, memory 1440/390, approvals 1440, fleet 1440, control-streaming) |
+| Build + wiring | production build, 8 routes; a task created **through the proxy** reached `succeeded` |
+
+Hallmark's own gates: `sloplint` static went `2 FAIL → 0 FAIL, 0 REFLEX, 0 WARN
+across 19 files`; render went `1 FAIL, 6 REFLEX → 0 FAIL, 0 WARN, 14 WAIVED`.
+Real defects it caught and fixed: an eyebrow order violation, a tape text colour
+at **3.20:1** (fixed with a new `--color-error-on-ink` token at 8.01:1), and an
+internal scroll container causing crowding.
+
+### Bug the dashboard exposed in MY code (fixed)
+
+The agent reported "task status lags its job: stays `queued` while the job runs".
+Real defect: `claimNextJob` updated the job but nothing moved the task, and the
+worker only learned the session id *after* the child process spawned. Fixed by
+making the claim and the task transition **one statement** (CTE). Verified live:
+
+```
+t+1s task=queued  t+2s..t+6s task=running  t+7s task=succeeded  result=STATUS-TEST
+```
+
+### Honest gaps in the dashboard
+
+1. **Approvals screen has never had a row** — no API route creates an approval
+   yet, so the queue is always empty. The decide path is wired and proven real
+   (409 on a non-pending id, 400 on an invalid decision), but nobody has ever
+   approved anything through it. This is the largest remaining functional hole.
+2. Agents/usage/health are read-only because the API offers no mutation there;
+   each screen says so rather than showing a dead control.
+3. The web app keeps **its own wire types** instead of importing
+   `@operant/core`. That duplicate vocabulary is the one drift risk in the repo.
+4. `packages/ui` was left untouched deliberately: one consumer makes a shared
+   component package a false abstraction at this size.
+
+### Token consistency
+
+The repo `.env` had a stale `OPERANT_BOT_TOKEN`, so the proxy 401'd against the
+VM. Local `.env` now matches the VM's dev token. In production this must be a
+freshly generated secret, set identically in `.env` on both sides.

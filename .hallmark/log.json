@@ -1,0 +1,22 @@
+[
+ {
+  "shape": "app screens: control, task, memory, approvals, fleet",
+  "scope": "app",
+  "theme": "wayfind",
+  "axes": "light/mono/cool",
+  "hero": "none (app screen)",
+  "nav": "ink bar, wordmark, four destinations, live health readout at the right edge",
+  "footer": "one colophon line",
+  "imagery": "none; the product's own live data",
+  "photos": [],
+  "sections": "Control board, tape, approvals, service; task detail; memory; approvals; fleet",
+  "signature": "the tape: one job's event trail on an ink plate, seq in amber, the live row in cobalt",
+  "waived": [
+   "49b"
+  ],
+  "fingerprint": "mono-board",
+  "prompt": "Build the Operant dashboard against the live control plane API",
+  "date": "2026-11-15",
+  "mode": "build"
+ }
+]
