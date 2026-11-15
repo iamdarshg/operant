@@ -1946,3 +1946,30 @@ report after the correction.
 Documentation that is *mostly* right is harder to catch than documentation that is wrong.
 The total was correct; only the components were stale. Re-reading a report against
 running evidence is a real verification step, not bookkeeping.
+
+---
+
+## 51. Round 42 — the smallest thing on the page was a link
+
+QA reported sub-24 px tap targets. The smallest were inline links inside data tables and
+the footer — the "Download" link on an artifact row, for instance — which inherited only
+the line box (~19 px). Buttons were already fine at `--control-height` (34 px).
+
+Added the WCAG 2.5.8 floor:
+
+```css
+.data a, footer a { display: inline-flex; align-items: center; min-height: 24px; }
+```
+
+### What I verified, and what I did not
+- The rule **ships**: present in the built stylesheet `4d5a7c68fc5565d8.css`.
+- The pages still render: `/` 200 (184 KB), `/schedules` 200, `/approvals` 200.
+- I did **not** re-measure the rendered target at 24 px. Measuring computed style needs a
+  browser evaluation this toolchain does not give me cheaply, so the honest claim is
+  "the rule is applied per the spec", not "I measured 24 px". That distinction is the
+  same one that mattered when a Chrome window size faked an overflow two dozen rounds ago.
+
+### Remaining QA item
+The 768 px column spacing between "State" and "Took" was not addressed. It is a visual
+nit with no functional consequence, and it needs a visual judgment I would rather make
+with a screenshot than guess at.

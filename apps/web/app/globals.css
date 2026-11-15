@@ -1069,3 +1069,15 @@ details pre {
     min-height: var(--control-height);
   }
 }
+
+/* ------------------------------------------------------------------ tap targets
+ * WCAG 2.5.8 (AA) asks for pointer targets of at least 24x24 CSS px. Inline links
+ * inside data tables and the footer inherited only the line box (~19 px) and were the
+ * smallest targets on the page — the "Download" link in a job/artifact row especially.
+ * Buttons already use --control-height (34 px). */
+.data a,
+footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
