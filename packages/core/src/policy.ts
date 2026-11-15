@@ -158,7 +158,10 @@ const SHELL_DENY: { re: RegExp; reason: string; risk: RiskLevel; kind: ApprovalA
   { re: /\b(rm|rmdir)\s+-[a-z]*r[a-z]*\s+\/(\s|$)/i, reason: 'delete from filesystem root', risk: 'critical', kind: 'destructive' },
   { re: /\b(del|erase)\s+.*\/s/i, reason: 'recursive delete (Windows)', risk: 'critical', kind: 'destructive' },
   { re: /\bRemove-Item\b[^\n]*-Recurse/i, reason: 'recursive delete (PowerShell)', risk: 'critical', kind: 'destructive' },
-  { re: /\b(mkfs|fdisk|parted|format)\b/i, reason: 'filesystem or partition operation', risk: 'critical', kind: 'destructive' },
+  // `format` as a bare word matched `docker ps --format ...`, blocking an ordinary
+  // diagnostic command as a "filesystem or partition operation". Only the actual
+  // disk-formatting forms are dangerous: `format.com`, or `format X:` (Windows).
+  { re: /\b(mkfs|fdisk|parted)\b|\bformat\.com\b|\bformat\s+[a-z]:/i, reason: 'filesystem or partition operation', risk: 'critical', kind: 'destructive' },
   { re: /\bdd\s+if=/i, reason: 'raw device write', risk: 'critical', kind: 'destructive' },
   { re: /\b(shutdown|reboot|halt|poweroff)\b/i, reason: 'host power control', risk: 'high', kind: 'destructive' },
   { re: /\b(DROP|TRUNCATE)\s+(TABLE|DATABASE|SCHEMA)\b/i, reason: 'destructive SQL', risk: 'critical', kind: 'destructive' },

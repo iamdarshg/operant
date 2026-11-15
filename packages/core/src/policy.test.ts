@@ -148,4 +148,31 @@ describe('tool-call boundary (enforcement that ignores wording)', () => {
     cyclic['self'] = cyclic;
     expect(() => assessToolCall('pwsh', cyclic)).not.toThrow();
   });
+
+  // A real approval was raised for `docker ps --format '{{.Names}}'` because the
+  // rule matched the word "format". Ordinary diagnostics must not be gated; a gate
+  // that cries wolf gets approved blindly.
+  const notDestructive = [
+    ['bash', { command: 'docker ps --format "{{.Names}} {{.Image}}"' }],
+    ['bash', { command: 'ss -ltn 2>/dev/null; echo "--- docker ---"; docker ps' }],
+    ['bash', { command: 'git log --pretty=format:%h' }],
+  ] as const;
+
+  for (const [tool, args] of notDestructive) {
+    it(`does not block diagnostics: ${String((args as { command: string }).command).slice(0, 42)}`, () => {
+      expect(assessToolCall(tool, args).block).toBe(false);
+    });
+  }
+
+  const stillDestructive = [
+    ['bash', { command: 'format C: /Q' }],
+    ['bash', { command: 'C:\\Windows\\System32\\format.com D:' }],
+    ['bash', { command: 'mkfs.ext4 /dev/sdb1' }],
+  ] as const;
+
+  for (const [tool, args] of stillDestructive) {
+    it(`still blocks real formatting: ${String((args as { command: string }).command).slice(0, 42)}`, () => {
+      expect(assessToolCall(tool, args).block).toBe(true);
+    });
+  }
 });

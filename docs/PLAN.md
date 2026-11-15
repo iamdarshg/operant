@@ -1240,3 +1240,52 @@ Only the two task endpoints validate. `agents`, `approvals`, `jobs`, `memory`,
 established and the remaining schemas are mechanical, but writing them without
 captured samples would be guessing at the wire format, which is the exact mistake
 being corrected here.
+
+---
+
+## 34. Round 25 — a false positive found by reading real data
+
+While capturing response samples for more wire schemas, one approval in the queue
+read:
+
+> "The agent tried to run bash, blocked because it is a filesystem or partition
+> operation."
+
+The command was `ss -ltn 2>/dev/null; echo "--- docker ---"; docker ps --format
+'{{.Names}} {{.Image}}'` — an ordinary diagnostic. The rule `\b(mkfs|fdisk|parted|format)\b`
+matched the word **format** inside `--format`.
+
+A gate that blocks `docker ps` is worse than no gate: it produces approvals nobody
+reads, trains the operator to click Approve reflexively, and buries the approvals
+that matter.
+
+### Fixed
+Only real formatting forms are matched now: `mkfs`, `fdisk`, `parted`, `format.com`,
+and `format X:` (the Windows drive form). Six new tests pin both directions:
+
+| Must NOT block | Must block |
+|---|---|
+| `docker ps --format "{{.Names}}"` | `format C: /Q` |
+| `ss -ltn; docker ps` | `C:\Windows\System32\format.com D:` |
+| `git log --pretty=format:%h` | `mkfs.ext4 /dev/sdb1` |
+
+Verified in the **deployed** artifact, not just the test runner:
+
+```
+allow <- docker ps --format "{{.Names}}"
+allow <- ss -ltn 2>/dev/null; docker ps
+BLOCK <- format C: /Q
+BLOCK <- mkfs.ext4 /dev/sdb1
+```
+
+The approval the false positive created was withdrawn with a note recording why,
+rather than deleted, so the audit trail still explains it.
+
+Core suite: **74 tests**. Running total **230**.
+
+### The lesson I keep relearning
+This was invisible in tests and invisible in the UI. It surfaced only by reading an
+actual approval row. Every previous round that "read real data" found something:
+the dead scheduler, the phantom overflow, the ungated "Email the client", this. The
+inverse is also true — every round where I trusted my own summary, I was wrong about
+something.
