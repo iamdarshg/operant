@@ -82,11 +82,20 @@ diagnose.
 
 1. Boot the CachyOS ISO, choose the **KDE Plasma** desktop, install to the
    **1 TB NVMe** (this is the drive the operating system owns).
-2. Filesystem: **btrfs** with subvolumes gives you snapshot-before-upgrade, which
+2. **Xorg is no longer installed by default.** As of the 26.01 installer, CachyOS
+   dropped `xorg-server` and with it `plasma-x11-session` / `kwin-x11`. Install
+   without it and you get a **black screen at login**. Either stay on Wayland
+   deliberately, or install Xorg first:
+   [CachyOS KDE notes](https://wiki.cachyos.org/configuration/desktop_environments/kde/)
+
+   ```bash
+   sudo pacman -S --needed xorg-server plasma-x11-session kwin-x11
+   ```
+3. Filesystem: **btrfs** with subvolumes gives you snapshot-before-upgrade, which
    on a rolling-release distro is the difference between a five-minute rollback
    and a reinstall. Ext4 is fine if you prefer boring.
-3. Create your user, and **set a root password** — several steps below need it.
-4. First boot, then update everything before adding anything:
+4. Create your user, and **set a root password** — several steps below need it.
+5. First boot, then update everything before adding anything:
 
    ```bash
    sudo pacman -Syu
@@ -138,7 +147,9 @@ broken piece is one revert instead of a wrecked desktop.
 
 | Piece | What to use | Caveat |
 |---|---|---|
-| Global theme | `Win11OS-kde` (GitHub) or the KDE Store "Windows 11" entry | Plasma 6 compatible builds only — check the last commit date |
+| Global theme | [`Win11OS-kde`](https://github.com/yeyushengfan258/Win11OS-kde) (light) or [`Win11OS-dark`](https://store.kde.org/p/1554642/) (dark) | Plasma 5-era; check whether the panel layout survives Plasma 6 |
+| Plasma 6 global theme | [Windows Eleven Plasma 6](https://store.kde.org/p/2141475) | Written for Plasma 6 — prefer this one |
+| Scripted route | [`cachyos-tweaks/win11_theme_install.sh`](https://github.com/ashloverscn/cachyos-tweaks/blob/main/win11_theme_install.sh) | Third-party script: read it before running it, it edits system files |
 | Icons | `Win11-icon-theme` (`yeyushengfan258/Win11-icon-theme`) | Actively maintained; installs to `~/.local/share/icons` |
 | Cursors | `Win11-cursors` from the same author | |
 | Window decorations | Breeze with a Win11 decoration, or `LightlyShaders` for rounded corners | Rounded corners + blur is the single most expensive thing you can enable on this GPU |
