@@ -92,3 +92,6 @@ curl -s localhost:8787/v1/health
 `preflight.sh` fails closed below 4 cores / 8 GB RAM / 60 GB free, because
 starting anyway produces a platform that appears to work and then OOMs under a
 real transcription.
+
+Bare-metal build and migration runbook: [../../docs/APPLIANCE.md](../../docs/APPLIANCE.md)
+

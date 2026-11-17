@@ -89,6 +89,10 @@ pnpm --filter @operant/web dev     # http://127.0.0.1:3000
 
 The API **refuses to start** without a bearer token. That is deliberate.
 
+**Bare-metal build:** if you are assembling the machine this runs on — memory test,
+CachyOS install, Plasma look, secrets on encrypted disk, migration to the final NVMe —
+see [docs/APPLIANCE.md](docs/APPLIANCE.md).
+
 Full operator documentation — secrets checklist, recovery, rollback, and how to add an
 agent or a tool — is in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
