@@ -1,8 +1,8 @@
 // Step 8 — browsers: Firefox + Brave, then the exact three RAM measurement commands.
 
 export const id = 'browser';
-export const title = 'Browsers and a real RAM comparison';
-export const why = 'Two browsers, one repeatable measurement, so the RAM choice is yours and not a guess.';
+export const title = 'Browsers and RAM';
+export const why = 'Two browsers and one repeatable measurement, so the RAM choice is yours and not a guess.';
 export const needsRoot = true;
 
 const BRAVE_FLATPAK = 'com.brave.Browser';
@@ -120,15 +120,15 @@ function printRamMethod(ctx) {
   ctx.log('');
   ctx.log('1. Firefox total resident memory (all of its processes):');
   ctx.log(
-    `   ps -eo rss=,args= | awk '/[f]irefox/ {s+=$1} END {printf "Firefox  %6.0f MiB\\n", s/1024}'`,
+    `   ps -u "$USER" -o rss=,args= | awk '/[f]irefox/ {s+=$1} END {printf "Firefox  %6.0f MiB\\n", s/1024}'`,
   );
   ctx.log('2. Brave total resident memory (all of its processes):');
   ctx.log(
-    `   ps -eo rss=,args= | awk '/[b]rave/ {s+=$1} END {printf "Brave    %6.0f MiB\\n", s/1024}'`,
+    `   ps -u "$USER" -o rss=,args= | awk '/[b]rave/ {s+=$1} END {printf "Brave    %6.0f MiB\\n", s/1024}'`,
   );
   ctx.log('3. Both, three samples five seconds apart, for a median instead of one lucky number:');
   ctx.log(
-    `   n=1; while [ $n -le 3 ]; do ps -eo rss=,args= | awk -v n="$n" '/[f]irefox/ {f+=$1} /[b]rave/ {b+=$1} END {printf "sample %d  Firefox %6.0f MiB  Brave %6.0f MiB\\n", n, f/1024, b/1024}'; n=$((n+1)); sleep 5; done`,
+    `   n=1; while [ $n -le 3 ]; do ps -u "$USER" -o rss=,args= | awk -v n="$n" '/[f]irefox/ {f+=$1} /[b]rave/ {b+=$1} END {printf "sample %d  Firefox %6.0f MiB  Brave %6.0f MiB\\n", n, f/1024, b/1024}'; n=$((n+1)); sleep 5; done`,
   );
   ctx.log('');
   ctx.log('Read this honestly: RSS double-counts shared library pages, so it overstates both totals.', 'info');

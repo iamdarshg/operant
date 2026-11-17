@@ -123,6 +123,7 @@ export async function run(ctx, input) {
     ctx.log('Then open http://127.0.0.1:8788, enter the values again, and run this step. The wizard still binds 127.0.0.1 only.');
     ctx.log('Afterwards, stop the elevated wizard and restart the user service:', 'info');
     ctx.log('systemctl --user start operant-provision');
+    values.clear();
     return {
       ok: false,
       needsRoot: true,

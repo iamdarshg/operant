@@ -29,6 +29,7 @@
         <p id="rail-progress" class="rail-progress">Connecting…</p>
       </div>
       <p class="rail-note">Steps run only when you press their button. A failure stays a failure.</p>
+      <p id="platform-note" class="platform-note" hidden></p>
       <ol id="step-list" class="step-list" aria-label="Setup steps">
         <li class="step-skeleton">Loading steps…</li>
       </ol>
@@ -80,7 +81,7 @@
           <button id="copy-output" type="button" class="btn btn-quiet btn-small" disabled>Copy output</button>
         </div>
         <p id="output-note" class="output-note" hidden></p>
-        <div id="output" class="output" role="log" aria-label="Output from the current step" tabindex="0">
+        <div id="output" class="output" role="log" aria-live="off" aria-label="Output from the current step" tabindex="0">
           <p class="output-empty">Nothing has run yet. Press <strong>Run step</strong> to see the real result here.</p>
         </div>
       </section>

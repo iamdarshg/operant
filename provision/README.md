@@ -25,8 +25,12 @@ network install is needed to start the wizard itself.
 For the installed, auto-starting version:
 
 ```bash
-./provision/install.sh
+bash provision/install.sh
 ```
+
+(`install.sh` is a normal text file in this checkout; invoking it through
+`bash` works even when the executable bit has not survived the checkout. If you
+prefer `./provision/install.sh`, run `chmod +x provision/install.sh` first.)
 
 That one command:
 
@@ -36,10 +40,11 @@ That one command:
 - creates `~/.config/systemd/user/operant-provision.service`;
 - creates `~/.config/autostart/operant-provision.desktop`, which opens the
   wizard at login **until every non-finish step has passed** (the finish step
-  writes `~/.local/state/operant-provision/wizard-finished`);
+  writes `~/.local/state/operant-provision/wizard-finished`; rerunning any step
+  clears that marker again, so completion is re-confirmed by running finish);
 - enables and starts the user service when a systemd user manager is available.
 
-Use `./provision/install.sh --dry-run` to print the plan without writing
+Use `bash provision/install.sh --dry-run` to print the plan without writing
 anything. The bootstrap refuses to run as root, because a user service and a
 per-user autostart entry belong to the desktop account.
 
@@ -124,10 +129,15 @@ for the secrets endpoint.
   If `PROVISION_HOST`, `PROVISION_BIND`, `PROVISION_ADDRESS`, `HOST`,
   `BIND_ADDRESS` or `PROVISION_ALLOW_REMOTE` suggest anything but loopback, the
   server refuses to start. Socket activation (`LISTEN_FDS`) is also refused.
+  There is no login; loopback is the boundary. Any local process can call the
+  API while the wizard runs, so stop the service once provisioning is done.
 - **Host and Origin checks.** Requests whose `Host` is not `localhost` /
   `127.0.0.1` / `::1` are rejected, and cross-origin/cross-site requests are
   rejected. This is DNS-rebinding and CSRF defence, not a substitute for the
   loopback bind.
+- **Transport is plain HTTP on loopback.** There is no TLS because the listener
+  never leaves the host; the credential POST travels over the loopback
+  interface only.
 - **CSP and headers.** The UI has no inline script or style. Responses carry
   `default-src 'none'`, `script-src 'self'`, `style-src 'self'`,
   `connect-src 'self'`, `frame-ancestors 'none'`, `nosniff`, and `no-referrer`.

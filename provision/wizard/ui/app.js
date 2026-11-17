@@ -7,6 +7,7 @@ const els = {
   banner: document.getElementById('banner'),
   list: document.getElementById('step-list'),
   railProgress: document.getElementById('rail-progress'),
+  platformNote: document.getElementById('platform-note'),
   serverContext: document.getElementById('server-context'),
   eyebrow: document.getElementById('step-eyebrow'),
   position: document.getElementById('step-position'),
@@ -48,7 +49,7 @@ let refreshAgain = false;
 let secretsRenderedFor = null;
 let secretsFormElement = null;
 let outputToken = null;
-let outputCount = 0;
+let outputSeq = 0;
 
 function setText(element, text) {
   if (element && element.textContent !== text) element.textContent = text;
@@ -109,7 +110,7 @@ async function refresh() {
       if (selectedId) {
         history.replaceState(null, '', `#${encodeURIComponent(selectedId)}`);
         outputToken = null;
-        outputCount = 0;
+        outputSeq = 0;
       }
     }
     buildRailIfNeeded();
@@ -190,9 +191,6 @@ function renderChips(step) {
     els.chips.append(chip);
   };
   add(step.needsRoot ? 'Needs root' : 'Runs as you', step.needsRoot ? 'warn' : 'muted');
-  if (step.needsRootReported) add('Root was unavailable', 'warn');
-  if (step.status === 'ok') add('Recorded pass', 'muted');
-  if (step.status === 'failed') add('Recorded failure', 'warn');
 }
 
 function defaultSummary(step) {
@@ -249,6 +247,7 @@ function renderSecrets(step) {
     input.name = field.name;
     input.autocomplete = 'new-password';
     input.spellcheck = false;
+    input.maxLength = 4096;
     input.setAttribute('autocapitalize', 'off');
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('aria-describedby', `${inputId}-hint`);
@@ -281,19 +280,25 @@ function renderSecrets(step) {
   }
   checkLabel.textContent = replaceText;
   checkline.append(check, checkLabel);
-  form.append(checkline);
 
   const error = document.createElement('p');
   error.className = 'form-error';
   error.id = 'secrets-error';
   error.hidden = true;
   error.tabIndex = -1;
-  form.append(error);
 
+  const actions = document.createElement('div');
+  actions.className = 'form-actions';
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'btn btn-primary';
+  submit.textContent = 'Write secrets';
   const note = document.createElement('p');
-  note.className = 'hint';
-  note.textContent = 'Press Enter in this form, or use the Run step button above.';
-  form.append(note);
+  note.className = 'hint form-note';
+  note.textContent = 'Same action as Run step above. Press Enter in any field to submit.';
+  actions.append(submit, note);
+
+  form.append(checkline, error, actions);
 
   els.secretsForm.append(form);
   secretsFormElement = form;
@@ -341,12 +346,28 @@ function clearSecretsForm() {
 function renderOutput(step) {
   const entries = Array.isArray(step.output) ? step.output : [];
   const token = `${step.id}:${step.startedAt || 'none'}`;
+  const serverSeq = Number.isFinite(step.outputSeq) ? step.outputSeq : entries.length;
   const nearBottom =
     els.output.scrollHeight - els.output.scrollTop - els.output.clientHeight < 48;
 
-  if (token !== outputToken || entries.length < outputCount) {
+  let rebuild = token !== outputToken || serverSeq < outputSeq;
+  let startIndex = 0;
+  if (!rebuild && serverSeq > outputSeq) {
+    startIndex = entries.findIndex((entry) => Number.isFinite(entry.seq) && entry.seq > outputSeq);
+    if (startIndex === -1) {
+      rebuild = true;
+    } else if (entries[startIndex].seq > outputSeq + 1) {
+      /* Lines were dropped by the server's cap between polls: redraw the tail. */
+      rebuild = true;
+    }
+  } else if (!rebuild && serverSeq === outputSeq) {
+    startIndex = entries.length;
+  }
+
+  if (rebuild) {
     outputToken = token;
-    outputCount = 0;
+    outputSeq = 0;
+    startIndex = 0;
     els.output.textContent = '';
     if (entries.length === 0) {
       const empty = document.createElement('p');
@@ -365,7 +386,7 @@ function renderOutput(step) {
     if (placeholder) placeholder.remove();
   }
 
-  for (let index = outputCount; index < entries.length; index += 1) {
+  for (let index = startIndex; index < entries.length; index += 1) {
     const entry = entries[index] || {};
     const line = document.createElement('p');
     const stream = entry.stream === 'err' || entry.stream === 'cmd' || entry.stream === 'info' ? entry.stream : 'out';
@@ -373,9 +394,17 @@ function renderOutput(step) {
     line.textContent = String(entry.text ?? '');
     els.output.append(line);
   }
-  outputCount = entries.length;
 
-  if (entries.length > 0 && nearBottom) {
+  if (entries.length > 0) {
+    const last = entries[entries.length - 1];
+    outputSeq = Number.isFinite(last.seq) ? last.seq : serverSeq;
+  } else {
+    outputSeq = serverSeq;
+  }
+
+  /* A completed step opens at its beginning. Live output follows the tail. */
+  const followTail = nearBottom && !(rebuild && step.status !== 'running');
+  if (entries.length > 0 && followTail) {
     els.output.scrollTop = els.output.scrollHeight;
   }
 
@@ -446,13 +475,29 @@ function render() {
   renderSecrets(step);
   renderOutput(step);
 
+  const formSubmit = els.secretsForm.querySelector('button[type="submit"]');
+  if (formSubmit) {
+    formSubmit.disabled = Boolean(running);
+    setText(formSubmit, thisRunning ? 'Running…' : 'Write secrets');
+  }
+
   if (data.server) {
-    const mode = data.server.isRoot ? 'server elevated (root)' : 'server not root';
+    const mode = data.server.isRoot ? 'server root' : 'server not root';
     const uid = data.server.uid === null || data.server.uid === undefined ? 'uid n/a' : `uid ${data.server.uid}`;
     setText(
       els.serverContext,
-      `${data.server.platform} · node ${data.server.node} · ${uid} · ${mode}\nrepo ${data.server.repoDir}`,
+      `${data.server.platform} · node ${data.server.node}\n${uid} · ${mode}\nrepo ${data.server.repoDir}`,
     );
+    if (data.server.platform !== 'linux') {
+      setText(
+        els.platformNote,
+        `This host is ${data.server.platform}, not Linux. Steps that need pacman, Flatpak or systemd will fail with a platform message; nothing is simulated.`,
+      );
+      els.platformNote.hidden = false;
+    } else {
+      els.platformNote.hidden = true;
+      setText(els.platformNote, '');
+    }
   }
 }
 
@@ -541,7 +586,7 @@ function syncFromHash() {
   const id = readHashStep();
   if (data && id && data.steps.some((step) => step.id === id) && id !== selectedId) {
     outputToken = null;
-    outputCount = 0;
+    outputSeq = 0;
     selectStep(id, { updateHash: false, focus: true });
   }
 }

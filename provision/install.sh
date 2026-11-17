@@ -27,7 +27,7 @@ DRY_RUN=0
 
 usage() {
   cat <<'EOF'
-Usage: ./install.sh [--dry-run]
+Usage: bash install.sh [--dry-run]
 
 Installs the Operant first-boot wizard for the current desktop user.
 
@@ -55,7 +55,7 @@ if [ "$(id -u)" -eq 0 ]; then
     say "warning: this would refuse to run as root; the real install must run as your desktop user."
   else
     say "Refusing to run as root." >&2
-    say "The service and autostart entry belong to your desktop user. Run: ./install.sh" >&2
+    say "The service and autostart entry belong to your desktop user. Run: bash install.sh" >&2
     exit 1
   fi
 fi
@@ -77,6 +77,7 @@ if [ -z "$NODE_BIN" ]; then
   say "  sudo pacman -S --needed nodejs" >&2
   exit 1
 fi
+NODE_DIR="$(dirname -- "$NODE_BIN")"
 NODE_MAJOR="$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')"
 case "${NODE_MAJOR}" in
   ''|*[!0-9]*)
@@ -107,6 +108,7 @@ REPO_URL=""
 if command -v git >/dev/null 2>&1; then
   REPO_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
 fi
+REPO_URL_DISPLAY="$(printf '%s' "${REPO_URL:-none known; the ai-stack step will explain how to set it}" | sed -E 's#(://)[^/@]+@#\1***@#; s#([?&](token|access_token|auth|key|api_key)=)[^&]+#\1***#g')"
 
 REPO_DIR="${OPERANT_REPO_DIR:-}"
 if [ -z "$REPO_DIR" ]; then
@@ -116,12 +118,11 @@ if [ -z "$REPO_DIR" ]; then
     REPO_DIR="${HOME}/operant"
   fi
 fi
-REPO_URL_DISPLAY="${REPO_URL:-none known; the ai-stack step will explain how to set it}"
 
 say "Operant provisioning wizard — bootstrap"
 say "  source:      ${SCRIPT_DIR}"
 say "  install to:  ${DEST}"
-say "  user service:${UNIT}"
+say "  user service: ${UNIT}"
 say "  autostart:   ${DESKTOP}"
 say "  repo:        ${REPO_DIR}"
 say "  repo URL:    ${REPO_URL_DISPLAY}"
@@ -169,16 +170,18 @@ else
   cat > "$UNIT" <<EOF
 [Unit]
 Description=Operant first-boot provisioning wizard (loopback only)
-Documentation=file://${DEST}/README.md
+Documentation=file://%h/.operant-provision/README.md
 
 [Service]
 Type=simple
-WorkingDirectory=${DEST}
-ExecStart="${NODE_BIN}" "${DEST}/wizard/server.mjs"
+WorkingDirectory=%h/.operant-provision
+ExecStart="${NODE_BIN}" "%h/.operant-provision/wizard/server.mjs"
 Restart=on-failure
 RestartSec=3
 UMask=0077
 Environment=NODE_ENV=production
+Environment="PROVISION_STATE_DIR=${STATE_DIR}"
+Environment=PATH=${NODE_DIR}:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target
@@ -216,9 +219,10 @@ fi
 STARTED=0
 if [ "$DRY_RUN" -eq 1 ]; then
   plan "systemctl --user daemon-reload"
-  plan "systemctl --user enable --now operant-provision.service"
+  plan "systemctl --user enable operant-provision.service"
+  plan "systemctl --user restart operant-provision.service"
 elif command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
-  if systemctl --user daemon-reload && systemctl --user enable --now operant-provision.service; then
+  if systemctl --user daemon-reload && systemctl --user enable operant-provision.service && systemctl --user restart operant-provision.service; then
     STARTED=1
     sleep 1
     if systemctl --user is-active --quiet operant-provision.service; then

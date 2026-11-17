@@ -94,8 +94,9 @@ export async function run(ctx) {
     const result = await resolveHost(host, 8000);
     dnsResults.set(host, result);
     if (result.ok) {
-      const addresses = result.addresses.map((entry) => `${entry.address} (IPv${entry.family})`);
-      ctx.log(`${host} → ${addresses.join(', ')}`);
+      const shown = result.addresses.slice(0, 4).map((entry) => `${entry.address} (IPv${entry.family})`);
+      const extra = result.addresses.length > shown.length ? `, +${result.addresses.length - shown.length} more` : '';
+      ctx.log(`${host} → ${shown.join(', ')}${extra}`);
     } else {
       ctx.log(`${host} → DNS failed: ${result.error}`, 'err');
     }

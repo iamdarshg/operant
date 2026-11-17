@@ -90,7 +90,7 @@ for (const name of [
 if (process.env.PROVISION_ALLOW_REMOTE === '1') {
   fail('PROVISION_ALLOW_REMOTE is not supported. The wizard has no remote mode.');
 }
-if (process.env.LISTEN_FDS) {
+if (Number(process.env.LISTEN_FDS || 0) > 0) {
   fail(
     'socket activation (LISTEN_FDS) is set. The wizard refuses to inherit a ' +
       'socket it did not bind to 127.0.0.1 itself.',
@@ -230,7 +230,9 @@ const startedAt = new Date().toISOString();
 // ---------------------------------------------------------------------------
 
 function redact(value) {
-  return String(value).replace(/(\b[a-z][a-z0-9+.-]*:\/\/)([^/\s@]+)@/gi, '$1***@');
+  return String(value)
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)([^/\s@]+)@/gi, '$1***@')
+    .replace(/([?&](?:token|access_token|auth|key|api_key)=)[^&\s]+/gi, '$1***');
 }
 
 function quoteArg(value) {
@@ -331,6 +333,7 @@ function blankRuntime() {
     finishedAt: null,
     needsRoot: false,
     chars: 0,
+    seq: 0,
   };
 }
 
@@ -382,11 +385,15 @@ function loadState() {
         const stream = ['out', 'err', 'cmd', 'info'].includes(entry.stream) ? entry.stream : 'out';
         let text = entry.text;
         if (text.length > MAX_LINE_CHARS) text = `${text.slice(0, MAX_LINE_CHARS)} … [truncated]`;
-        runtime.output.push({ stream, text });
+        runtime.seq += 1;
+        const sequence = Number.isFinite(entry.seq) && entry.seq > 0 ? entry.seq : runtime.seq;
+        runtime.seq = Math.max(runtime.seq, sequence);
+        runtime.output.push({ seq: sequence, stream, text });
         runtime.chars += text.length;
       }
       capOutput(runtime);
     }
+    if (Number.isFinite(saved.seq) && saved.seq > runtime.seq) runtime.seq = saved.seq;
     if (runtime.status === 'running') {
       runtime.status = 'failed';
       runtime.summary = 'Interrupted by a wizard server restart; run the step again.';
@@ -399,7 +406,7 @@ function loadState() {
 
 function outputSnapshot(id) {
   const runtime = state.steps[id];
-  return runtime.output.map((entry) => ({ stream: entry.stream, text: entry.text }));
+  return runtime.output.map((entry) => ({ seq: entry.seq, stream: entry.stream, text: entry.text }));
 }
 
 let saveInFlight = false;
@@ -470,22 +477,22 @@ function appendOutput(stepId, stream, text) {
   const allowed = stream === 'err' || stream === 'cmd' || stream === 'info' ? stream : 'out';
   const raw = String(text ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (raw === '') {
-    pushLine(stepId, runtime, allowed, '');
+    pushLine(runtime, allowed, '');
     return;
   }
   const lines = raw.split('\n');
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-  for (const line of lines) pushLine(stepId, runtime, allowed, line);
+  for (const line of lines) pushLine(runtime, allowed, line);
 }
 
-function pushLine(stepId, runtime, stream, line) {
+function pushLine(runtime, stream, line) {
   let text = String(line);
   if (text.length > MAX_LINE_CHARS) text = `${text.slice(0, MAX_LINE_CHARS)} … [truncated]`;
-  runtime.output.push({ stream, text });
+  runtime.seq = (runtime.seq || 0) + 1;
+  runtime.output.push({ seq: runtime.seq, stream, text });
   runtime.chars = (runtime.chars || 0) + text.length;
   capOutput(runtime);
   scheduleSave();
-  void stepId;
 }
 
 function logSection(stepId, title) {
@@ -888,11 +895,13 @@ function startStep(stepId, input) {
   runtime.output = [];
   runtime.truncated = false;
   runtime.chars = 0;
+  runtime.seq = 0;
   runtime.needsRoot = false;
   runtime.startedAt = Date.now();
   runtime.finishedAt = null;
   activeJob = { stepId, startedAt: runtime.startedAt };
   void saveState();
+  if (stepId !== 'finish') void syncMarker(false);
   console.log(`[step] ${stepId} started`);
 
   void (async () => {
@@ -922,23 +931,38 @@ function startStep(stepId, input) {
       runtime.finishedAt = Date.now();
       if (result && result.needsRoot === true) runtime.needsRoot = true;
       context.input = null;
-      activeJob = null;
-      if (stepId === 'finish') {
-        const complete = allPriorOk() && runtime.status === 'ok';
-        appendOutput(
-          stepId,
-          'info',
-          complete
-            ? 'Completion marker written: the autostart entry will not reopen this wizard.'
-            : 'Completion marker removed: the wizard will open again at login until every step passes.',
-        );
-        await syncMarker(complete);
+      try {
+        if (stepId === 'finish') {
+          const complete = allPriorOk() && runtime.status === 'ok';
+          appendOutput(
+            stepId,
+            'info',
+            complete
+              ? 'Completion marker written: the autostart entry will not reopen this wizard.'
+              : 'Completion marker removed: the wizard will open again at login until every step passes.',
+          );
+          await syncMarker(complete);
+        }
+        await saveState();
+      } finally {
+        activeJob = null;
       }
-      await saveState();
       const elapsed = ((runtime.finishedAt - runtime.startedAt) / 1000).toFixed(1);
       console.log(`[step] ${stepId} ${runtime.status} in ${elapsed}s`);
     }
-  })();
+  })().catch((error) => {
+    console.error(`[step] ${stepId} job failed outside its handler: ${error && error.stack ? error.stack : error}`);
+    try {
+      const runtime = state.steps[stepId];
+      runtime.status = 'failed';
+      runtime.summary = 'Internal wizard error; see the server log.';
+      runtime.finishedAt = Date.now();
+    } catch {
+      // state is gone; nothing more to record
+    }
+    activeJob = null;
+    void saveState();
+  });
 
   return {
     status: 202,
@@ -1077,6 +1101,7 @@ function publicSteps() {
         startedAt: runtime.startedAt,
         finishedAt: runtime.finishedAt,
         output: outputSnapshot(definition.id),
+        outputSeq: runtime.seq || 0,
         truncated: runtime.truncated === true,
         needsRootReported: runtime.needsRoot === true,
         secretsFileExists: definition.id === 'secrets' ? secretsFileExists() : null,

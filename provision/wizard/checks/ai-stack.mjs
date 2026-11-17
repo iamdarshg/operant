@@ -24,7 +24,8 @@ function pnpmVersionFrom(directory) {
   const packageJson = readPackageJson(directory);
   const packageManager = typeof packageJson?.packageManager === 'string' ? packageJson.packageManager : '';
   const match = packageManager.match(/^pnpm@([^+\s]+)/);
-  return match ? match[1] : FALLBACK_PNPM;
+  if (!match || !/^[0-9][0-9A-Za-z.+-]*$/.test(match[1])) return FALLBACK_PNPM;
+  return match[1];
 }
 
 function directoryIsEmpty(directory) {
@@ -74,6 +75,15 @@ export async function run(ctx) {
       return { ok: false, summary: 'Repository path is not a directory.' };
     }
     if (fs.existsSync(path.join(repoDir, 'package.json'))) {
+      const manifest = readPackageJson(repoDir);
+      if (manifest && manifest.name && manifest.name !== 'operant') {
+        ctx.log(
+          `${repoDir} contains package.json for ${JSON.stringify(manifest.name)}, not Operant. ` +
+            'Refusing to build an unrelated project.',
+          'err',
+        );
+        return { ok: false, summary: 'Configured repository directory is not the Operant checkout.' };
+      }
       repoExists = true;
       ctx.log('Using the existing checkout (package.json is present).');
       if (!fs.existsSync(path.join(repoDir, '.git'))) {
@@ -103,7 +113,7 @@ export async function run(ctx) {
     ctx.log('Cloning the Operant repository (shallow, one commit).');
     const clone = await ctx.runAsHuman(
       'git',
-      ['clone', '--depth', '1', ctx.repoUrl, repoDir],
+      ['clone', '--depth', '1', '--', ctx.repoUrl, repoDir],
       { cwd: ctx.humanHome, stream: true, timeoutMs: 20 * 60 * 1000 },
     );
     if (!clone.ok) {
