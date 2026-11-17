@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Operant first-boot provisioning wizard. Local only.">
+  <title>Operant first-boot setup</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the current step</a>
+
+  <header class="masthead">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">O</span>
+      <div class="brand-copy">
+        <p class="eyebrow">Operant</p>
+        <p class="wordmark">First-boot setup</p>
+      </div>
+    </div>
+    <p class="masthead-note">Local only · <span class="mono">127.0.0.1</span></p>
+  </header>
+
+  <div class="frame">
+    <nav class="rail" aria-labelledby="rail-heading">
+      <div class="rail-head">
+        <h2 id="rail-heading" class="eyebrow">Provisioning sequence</h2>
+        <p id="rail-progress" class="rail-progress">Connecting…</p>
+      </div>
+      <p class="rail-note">Steps run only when you press their button. A failure stays a failure.</p>
+      <ol id="step-list" class="step-list" aria-label="Setup steps">
+        <li class="step-skeleton">Loading steps…</li>
+      </ol>
+      <div class="rail-foot">
+        <p id="server-context" class="server-context">Connecting to the local server…</p>
+        <p class="security-note">Loopback bind · argv-only commands · secrets never echoed</p>
+      </div>
+    </nav>
+
+    <main id="main" class="panel" tabindex="-1">
+      <div class="panel-head">
+        <p id="step-eyebrow" class="eyebrow">Loading…</p>
+        <p id="step-position" class="position" aria-hidden="true">00 / 00</p>
+      </div>
+
+      <h1 id="step-title" tabindex="-1">Operant setup</h1>
+      <p id="step-why" class="why"></p>
+      <div id="step-chips" class="chips" aria-label="Step attributes"></div>
+
+      <div class="controls">
+        <button id="run-button" type="button" class="btn btn-primary" disabled>Run step</button>
+        <div class="nav-buttons">
+          <button id="prev-button" type="button" class="btn btn-quiet" disabled>Previous</button>
+          <button id="next-button" type="button" class="btn btn-quiet" disabled>Next</button>
+        </div>
+      </div>
+      <p id="run-note" class="run-note"></p>
+
+      <section class="status-block" aria-labelledby="status-heading">
+        <div class="status-line">
+          <h2 id="status-heading" class="eyebrow">Status</h2>
+          <p id="step-status" class="status" role="status" aria-live="polite" data-status="pending">Not run yet</p>
+        </div>
+        <p id="step-summary" class="summary"></p>
+      </section>
+
+      <section id="secrets-block" class="secrets" aria-labelledby="secrets-heading" hidden>
+        <h2 id="secrets-heading">Credentials</h2>
+        <p class="hint">
+          Password fields. Values are sent once; when the server has root they are written to
+          <code>/etc/operant/secrets.env</code> with mode 600. They are never echoed back or logged.
+        </p>
+        <div id="secrets-form"></div>
+      </section>
+
+      <section class="output-block" aria-labelledby="output-heading">
+        <div class="output-head">
+          <h2 id="output-heading" class="eyebrow">Real output</h2>
+          <button id="copy-output" type="button" class="btn btn-quiet btn-small" disabled>Copy output</button>
+        </div>
+        <p id="output-note" class="output-note" hidden></p>
+        <div id="output" class="output" role="log" aria-label="Output from the current step" tabindex="0">
+          <p class="output-empty">Nothing has run yet. Press <strong>Run step</strong> to see the real result here.</p>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <p>
+          Every status above is the server’s verdict from the command’s exit code and its own checks,
+          not a guess. No step advances automatically.
+        </p>
+        <p class="foot-keys"><span class="kbd">Alt</span> + <span class="kbd">←</span> / <span class="kbd">→</span> move between steps.</p>
+      </footer>
+    </main>
+  </div>
+
+  <div id="banner" class="banner" role="alert" hidden></div>
+  <noscript>
+    <p class="noscript">This wizard needs JavaScript to talk to its local server. Nothing was changed.</p>
+  </noscript>
+  <script src="/app.js" defer></script>
+</body>
+</html>
